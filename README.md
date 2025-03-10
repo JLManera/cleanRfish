@@ -6,6 +6,7 @@
 
 ## ⚠️ Project Status Note
 **Maintainer:** Jack L Manera, PhD Candidate in the School of Biological Sciences, Monash University 
+
 **Maintenance Level:** 🐣 Experimental/Basic (Personal Research Project)  
 
 > **Important Note:** This package is actively used in my PhD research but receives irregular maintenance. While functional for my needs, users should:
