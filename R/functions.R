@@ -198,7 +198,7 @@ smooth_path <- function(path_df, p = 3, n = 13) {
 #' @param n Window size (number of points) for Savitzky-Golay filter (must be odd)
 #' @return Fully processed dataframe with smoothed coordinates
 #' @export
-find_smooth_path <- function(df, na.fill = TRUE, p = 3, n = 13) {
+find_smooth_path <- function(df, p = 3, n = 13) {
   df |>
     find_path() |>
     smooth_path(na.fill = na.fill, p = p, n = n)
