@@ -24,5 +24,6 @@ Imports:
   tidyr (>= 1.2.0),
   stats,
   signal (>= 0.7.7),
-  zoo (>= 1.8.10)
+  zoo (>= 1.8.10),
+  mixtools
 RoxygenNote: 7.3.2
