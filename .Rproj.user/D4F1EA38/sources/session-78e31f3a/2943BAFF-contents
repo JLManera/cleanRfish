@@ -1,0 +1,662 @@
+---
+title: "data-wrangling-social-temazepam"
+author: "Jack L Manera & Jake M Martin"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  html_document:
+    code_download: true
+    code_folding: hide
+    depth: 4
+    number_sections: no
+    theme:  cosmo
+    toc: yes
+    toc_float: yes
+    toc_depth: 4
+  pdf_document:
+    toc: yes
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+message = FALSE,
+warning = FALSE,
+cache = TRUE,
+tidy = TRUE
+)
+```
+
+#Loading necassary packages
+```{r}
+#install.packages('xfun')
+
+xfun::pkg_attach(c('tidyverse', 'ggplot2', 'zoo', 'tibble', 'plotly', "gridExtra", "dbscan", "readr", 'readxl', 'signal', 'data.table'), install = TRUE)
+```
+
+#Specifying functions 
+these functions are designed to calculate various parameters from the x, y, t coordinates of each fish in each trial
+```{r}
+#Function to calibrate coordinates (from pixels to mm)
+calibrate_distances <- function(df, pixels_per_mm_calibration) {
+  df <- df |> 
+    mutate(
+      x1 = (x1 / pixels_per_mm_calibration),
+      y1 = (y1 / pixels_per_mm_calibration),
+      x2 = (x2 / pixels_per_mm_calibration),
+      y2 = (y2 / pixels_per_mm_calibration),
+      x3 = (x3 / pixels_per_mm_calibration),
+      y3 = (y3 / pixels_per_mm_calibration),
+      x4 = (x4 / pixels_per_mm_calibration),
+      y4 = (y4 / pixels_per_mm_calibration),
+      x5 = (x5 / pixels_per_mm_calibration),
+      y5 = (y5 / pixels_per_mm_calibration)
+    )
+  return(df)
+}
+
+#Function to convert a data frame to long form (the tracking output gives individuals their own columns for coordinates)
+convert_to_long_form <- function(df, session_name) {
+  df <- df |>
+    mutate(
+      trial = session_name,
+      frame = row_number()
+    ) |> 
+    pivot_longer(
+      cols = starts_with("x") | starts_with("y"),
+      names_to = c(".value", "point_id"),
+      names_pattern = "(x|y)(\\d+)"
+    ) |>
+    mutate(fish_id = as.integer(point_id),
+           fish_id = letters[fish_id]
+    )
+  return(df)
+}
+
+#Function to interpolate NA values
+interpolate_nas <- function(df) {
+  df <- df |>
+    group_by(fish_id) |>
+    arrange(frame) |>
+    mutate(
+      x_fill = na.approx(x, na.rm = FALSE),
+      y_fill = na.approx(y, na.rm = FALSE)
+    ) |>
+    ungroup()
+  return(df)
+}
+
+#Function to smooth the tracking using Savitzky-Golay filter
+smooth_tracking <- function(df, filter_order = 3, filter_length = 13) {
+  df <- df |>
+    group_by(fish_id) |>
+    arrange(frame) |>
+    mutate(
+      # Use a condition to apply smoothing only to segments of data with enough points
+      x_smooth = ifelse(row_number() < filter_length/2 | row_number() > n() - filter_length/2, x_fill,
+                        sgolayfilt(x_fill, p = filter_order, n = filter_length)),
+      y_smooth = ifelse(row_number() < filter_length/2 | row_number() > n() - filter_length/2, y_fill,
+                        sgolayfilt(y_fill, p = filter_order, n = filter_length))
+    ) |>
+    ungroup()
+  
+  return(df)
+}
+
+#Function to calculate distance traveled between each frame and the individuals heading direction in degrees
+calculate_distance_and_heading <- function(df, frame_rate) {
+  df <- df |>
+    group_by(fish_id) |> 
+    arrange(frame) |>
+    mutate(
+      delta_x = x_smooth - lag(x_smooth),
+      delta_y = y_smooth - lag(y_smooth),
+      distance = sqrt(delta_x^2 + delta_y^2),
+      velocity = distance * frame_rate,
+      heading = atan2(delta_y, delta_x) * (180 / pi),
+      heading = ifelse(heading < 0, heading + 360, heading)
+    ) |> 
+    ungroup()
+  return(df)
+}
+
+#Function to calculate pairwise distances and determine groups
+calculate_groups <- function(df, threshold_distance) {
+  # Step 1: Filter out rows with missing coordinates
+  df <- df |>
+    dplyr::filter(!is.na(x_smooth) & !is.na(y_smooth))
+
+  # Step 2: Apply DBSCAN to detect groups within each frame
+  group_results <- df |>
+    group_by(frame) |>
+    do({
+      coords <- cbind(.$x_smooth, .$y_smooth)
+      clustering <- dbscan(coords, eps = threshold_distance, minPts = 1)
+      data.frame(fish_id = .$fish_id, group_id = clustering$cluster, frame = .$frame)
+    }) |>
+    ungroup()
+
+  df <- df |>
+    left_join(group_results, by = c("fish_id", "frame")) |>
+    group_by(frame, group_id) |>
+    mutate(group_name = paste(sort(fish_id), collapse = "")) |>
+    ungroup()
+
+  # Step 3: Generate unique group ID for contiguous frames with the same group_name
+  df <- df |>
+    arrange(frame) |>
+    group_by(group_name) |>
+    mutate(
+      gap = ifelse(frame - lag(frame, default = first(frame)) > 1, 1, 0),
+      iter = cumsum(gap),
+      unique_group_id = paste0(group_name, "_", iter + 1)
+    ) |>
+    ungroup()
+
+  return(df)
+}
+
+# Function to calculate nearest neighbor distance
+calculate_nearest_neighbor_distance <- function(df) {
+  df <- df |>
+    group_by(trial, frame) |>
+    mutate(
+      nearest_neighbor_distance = map_dbl(seq_along(fish_id), function(i) {
+        distances <- sqrt((x_smooth - x_smooth[i])^2 + (y_smooth - y_smooth[i])^2)
+        distances <- distances[distances != 0]  # Remove zero distance (distance to itself)
+        if (length(distances) == 0) {
+          return(NA)  # If no other fish, return NA
+        } else {
+          return(min(distances, na.rm = TRUE))  # Return the minimum distance
+        }
+      })
+    ) |>
+    ungroup()
+  
+  return(df)
+}
+
+# Function to calculate group's central location
+calculate_group_centroid <- function(df) {
+  df <- df |>
+    group_by(frame, unique_group_id) |>
+    mutate(
+      group_size = n(),
+      centroid_x = ifelse(group_size == 1, NA, mean(x_smooth, na.rm = TRUE)),
+      centroid_y = ifelse(group_size == 1, NA, mean(y_smooth, na.rm = TRUE))
+    ) |>
+    ungroup()
+  return(df)
+}
+
+
+# Function to calculate group velocity and heading
+calculate_group_velocity_heading <- function(df, frame_rate) {
+  # Step 1: Calculate the centroids for each group at each frame
+  centroids <- df |>
+    group_by(unique_group_id, frame) |>
+    summarise(
+      centroid_x = mean(centroid_x, na.rm = TRUE),
+      centroid_y = mean(centroid_y, na.rm = TRUE),
+      group_size = n(),
+      group_composition = paste(sort(unique(fish_id)), collapse = "-"),
+      .groups = 'drop'
+    )
+  
+  # Step 2: Calculate the differences in centroids between consecutive frames
+  centroids <- centroids |>
+    arrange(unique_group_id, frame) |>
+    group_by(unique_group_id) |>
+    mutate(
+      previous_composition = lag(group_composition),
+      composition_changed = group_composition != previous_composition,
+      delta_centroid_x = ifelse(composition_changed, NA, centroid_x - lag(centroid_x)),
+      delta_centroid_y = ifelse(composition_changed, NA, centroid_y - lag(centroid_y)),
+      group_distance = sqrt(delta_centroid_x^2 + delta_centroid_y^2),
+      group_velocity = group_distance * frame_rate,
+      group_heading = atan2(delta_centroid_y, delta_centroid_x) * (180 / pi),
+      group_heading = ifelse(!is.na(group_heading) & group_heading < 0, group_heading + 360, group_heading)
+    ) |>
+    ungroup()
+  
+  # Step 3: Merge the calculated group velocities and headings back into the original dataframe
+  df <- df |>
+    left_join(centroids |> select(frame, unique_group_id, group_velocity, group_heading), 
+              by = c("frame", "unique_group_id"))
+  
+  return(df)
+}
+
+# Function to identify the leader fish within each group
+calculate_leader <- function(df) {
+  df <- df |>
+    group_by(frame, group_id) |>
+    mutate(
+      # Calculate displacement in the direction of the group's heading
+      displacement_in_heading = (x_smooth - centroid_x) * cos(group_heading * pi / 180) + 
+                                (y_smooth - centroid_y) * sin(group_heading * pi / 180),
+      # Calculate the heading difference between the individual and the group
+      heading_diff = abs(heading - group_heading),
+      heading_diff = ifelse(heading_diff > 180, 360 - heading_diff, heading_diff)
+    ) |>
+    # Ensure that only one fish can be the leader
+    mutate(
+      max_displacement = ifelse(
+        group_size >= 2 & group_velocity > 20 & (heading_diff > -90 | heading_diff < 90), 
+        max(displacement_in_heading, na.rm = TRUE), 
+        NA
+      ),
+      is_leading = ifelse(displacement_in_heading == max_displacement & !is.na(max_displacement), 1, 0)
+    ) |>
+    ungroup() |>
+    select(-max_displacement, -heading_diff)
+  
+  return(df)
+}
+
+# Function to track leadership changes with consideration of group composition
+calculate_leadership_changes <- function(df) {
+  df <- df |>
+    arrange(group_id, frame) |>
+    group_by(group_id) |>
+    mutate(
+      current_leader = NA_character_,  # Initialize the current_leader column
+      leadership_change = 0  # Initialize the leadership_change column
+    )
+  
+  # Step through the dataframe row by row
+  for (i in seq_len(nrow(df))) {
+    if (i == 1) {
+      # For the first row, assign the leader if is_leading is 1
+      if (df$is_leading[i] == 1) {
+        df$current_leader[i] <- df$fish_id[i]
+      }
+    } else {
+      # For subsequent rows
+      if (df$group_name[i] != df$group_name[i - 1]) {
+        # If the group_name has changed, reset the leader
+        df$current_leader[i] <- ifelse(df$is_leading[i] == 1, df$fish_id[i], NA)
+      } else {
+        # If the group_name is the same
+        if (df$is_leading[i] == 1) {
+          df$current_leader[i] <- df$fish_id[i]
+          # Check if the leader has changed compared to the previous row, accounting for NAs
+          if (!is.na(df$current_leader[i]) && !is.na(df$current_leader[i - 1]) && df$current_leader[i] != df$current_leader[i - 1]) {
+            df$leadership_change[i] <- 1
+          }
+        } else {
+          # Carry forward the previous leader if there is no new leader and it's not NA
+          df$current_leader[i] <- ifelse(!is.na(df$current_leader[i - 1]), df$current_leader[i - 1], NA)
+        }
+      }
+    }
+  }
+
+  return(df |> ungroup())
+}
+
+#Function to calculate cohesion as the mean distance to the group's central location
+calculate_cohesion <- function(df) {
+  df <- df |>
+    group_by(frame, group_id) |>
+    mutate(
+      group_size = n(),
+      distance_to_centroid = ifelse(group_size == 1, NA, sqrt((x_smooth - centroid_x)^2 + (y_smooth - centroid_y)^2))
+    ) |>
+    summarise(
+      cohesion = mean(distance_to_centroid, na.rm = TRUE),
+      .groups = 'drop'
+    )
+  return(df)
+}
+
+#Function to calculate alignment of headings within groups
+calculate_alignment <- function(df) {
+  df <- df |>
+    group_by(frame, group_id) |>
+    mutate(
+      mean_heading = atan2(mean(sin(heading * pi / 180), na.rm = TRUE), mean(cos(heading * pi / 180), na.rm = TRUE)) * (180 / pi),
+      alignment = cos((heading - mean_heading) * pi / 180)
+    ) |>
+    summarise(
+      mean_alignment = mean(alignment, na.rm = TRUE),
+      .groups = 'drop'
+    )
+  return(df)
+}
+
+#function to extract trail mean values of shoaling parameters
+summarize_trial <- function(df) {
+  # Calculate group sizes for each frame
+  group_sizes <- df |>
+    group_by(trial, frame, group_id) |>
+    summarise(group_size = n_distinct(fish_id), .groups = 'drop') |>
+    ungroup()
+  
+  # Calculate the mean group size for each trial
+  mean_group_sizes <- group_sizes |>
+    group_by(trial) |>
+    summarise(mean_group_size = mean(group_size, na.rm = TRUE), .groups = 'drop')
+  
+  # Calculate the time each fish is leading
+  leading_times <- df |>
+    group_by(trial, fish_id) |>
+    summarise(leading_time = sum(is_leading, na.rm = TRUE), .groups = 'drop') |>
+    pivot_wider(names_from = fish_id, values_from = leading_time, names_prefix = "leading_time_") |> 
+    ungroup()
+  
+  # Find the time in seconds when the first group of exactly five fish is formed
+  first_group_of_five <- df |>
+    dplyr::filter(group_size == 5) |>
+    group_by(trial) |>
+    summarise(latency_form_group_of_five = min(seconds), .groups = 'drop')
+  
+  # Calculate the total number of leadership changes and total frames with a leader
+  leadership_changes_summary <- df |>
+    group_by(trial) |>
+    summarise(
+      total_leadership_changes = sum(leadership_change, na.rm = TRUE),
+      total_leader_frames = sum(is_leading, na.rm = TRUE),
+      rate_of_leadership_change = total_leadership_changes/(total_leader_frames*0.04),
+      .groups = 'drop'
+    )
+  
+  # Merge the mean group sizes, leading times, latency to form a group of five, 
+  # and leadership change summary with other summary statistics
+  summary_df <- df |>
+    group_by(trial) |>
+    summarise(
+      mean_cohesion = mean(cohesion, na.rm = TRUE),
+      mean_velocity = mean(velocity, na.rm = TRUE),
+      mean_alignment = mean(mean_alignment, na.rm = TRUE),
+      .groups = 'drop'
+    ) |>
+    left_join(mean_group_sizes, by = "trial") |>
+    left_join(leading_times, by = "trial") |>
+    left_join(first_group_of_five, by = "trial") |>
+    left_join(leadership_changes_summary, by = "trial")
+  
+  return(summary_df)
+}
+
+summarise_individual_sociality <- function(df) {
+  # Calculate mean individual alignments and other metrics for each trial and fish
+  mean_indv_alignments <- df |>
+    group_by(trial, fish_id) |>
+    dplyr::filter(group_size >= 2) |> 
+    summarise(
+      mean_indv_alignment = mean(mean_alignment, na.rm = TRUE),
+      mean_dist_group_centroid = mean(sqrt((centroid_x - x_smooth)^2 + (centroid_y - y_smooth)^2), na.rm = TRUE),
+      time_spent_shoaling = n() / 25, 
+      indv_mean_velocity_shoaling = mean(velocity, na.rm = TRUE),
+      .groups = 'drop'
+    )|> 
+    ungroup()
+  
+  # Calculate mean nearest neighbor distance
+  nnd <- df |>
+    group_by(trial, fish_id) |>
+    summarise(
+      mean_nnd = mean(nearest_neighbor_distance, na.rm = TRUE),
+      indv_mean_velocity_total = mean(velocity, na.rm = TRUE),
+      .groups = 'drop'
+    )|> 
+    ungroup()
+  
+  # Calculate the total time each fish spends leading
+  leading <- df |>
+    group_by(trial, fish_id) |>
+    dplyr::filter(current_leader == fish_id) |> 
+    summarise(
+      time_leading = n() / 25,  
+      .groups = 'drop'
+    )|> 
+    ungroup()
+  
+  # Calculate individual mean velocity when solo and time spent solo
+  solo_velocity <- df |>
+    group_by(trial, fish_id) |>
+    dplyr::filter(group_size == 1) |>
+    summarise(
+      indv_mean_velocity_solo = mean(velocity, na.rm = TRUE),
+      time_solo = n() / 25, 
+      .groups = 'drop'
+    )|> 
+    ungroup()
+  
+  # Join all summaries on trial and fish_id
+  final_summary <- mean_indv_alignments |>
+    left_join(nnd, by = c("trial", "fish_id")) |>
+    left_join(leading, by = c("trial", "fish_id")) |>
+    left_join(solo_velocity, by = c("trial", "fish_id"))
+  
+  return(final_summary)
+}
+
+rank_leaders <- function(summary_df) {
+  # Step 1: Extract and rank the leader times
+  ranked_times_df <- summary_df |>
+    select(c("trial", "leading_time_a", "leading_time_b", "leading_time_c", "leading_time_d", "leading_time_e")) |>
+    pivot_longer(
+      cols = c("leading_time_a", "leading_time_b", "leading_time_c", "leading_time_d", "leading_time_e"),
+      names_to = "leader",
+      values_to = "value"
+    ) |>
+    arrange(trial, desc(value)) |>
+    group_by(trial) |>
+    mutate(
+      leader_val = c("primary_leader_time", "secondary_leader_time", "tertiary_leader_time", "quaternary_leader_time", "quinary_leader_time")
+    ) |>
+    pivot_wider(
+      id_cols = trial,
+      names_from = leader_val,
+      values_from = value
+    ) |>
+    ungroup()
+
+  # Step 2: Left-join the ranked times back to the original summary_df
+  summary_df <- summary_df |>
+    left_join(ranked_times_df, by = "trial")
+
+  return(summary_df)
+}
+
+# Function to summarize data per minute (1500 frames)
+summarize_per_minute <- function(df, frames_per_minute = 1500) {
+  df <- df |> 
+    mutate(
+      minute = ceiling(frame / frames_per_minute)
+    ) |>
+    group_by(id, minute, fish_id) |> 
+    summarise(
+      velocity = mean(velocity, na.rm = TRUE),
+      nearest_neighbor_distance = mean(nearest_neighbor_distance, na.rm = TRUE),
+      group_velocity = mean(group_velocity, na.rm = TRUE),
+      group_heading = mean(group_heading, na.rm = TRUE),
+      group_size = mean(group_size, na.rm = TRUE),
+      alignment = mean(mean_alignment, na.rm =TRUE),
+      cohesion = mean(cohesion, na.rm = TRUE),
+      leadership_change = sum(leadership_change, na.rm = TRUE),
+      .groups = 'drop'
+    )
+  return(df)
+}
+```
+
+# Reading in the tracking data
+##Specifying paths
+```{r}
+#the directory that contains all of the subfolders that contain the raw output of IdTracker.ai
+parent_directory <- "./2-data"
+
+csv_files_all <- list.files(path = parent_directory, pattern = "trajectories\\.csv$", recursive = TRUE, full.names = TRUE)
+
+csv_files <- grep("without_gaps_csv/trajectories\\.csv$", csv_files_all, value = TRUE)
+```
+
+##Processing the raw data
+```{r}
+#Assigning various thresholds and coefficients
+frame_rate <- 25
+pixels_per_mm_calibration <- (858 / 500)
+threshold_distance <- 65
+iteration <- 1
+
+#Initilising the final dataframe
+combined_df <- tibble()
+
+for (csv_file in csv_files) {
+  session_name <- sub(".*session_", "", dirname(dirname(dirname(csv_file))))
+  
+  df <- read_csv(csv_file)
+  
+  df <- calibrate_distances(df, pixels_per_mm_calibration)
+  df <- convert_to_long_form(df, session_name)
+  df <- interpolate_nas(df)
+  df <- smooth_tracking(df)
+  df <- calculate_distance_and_heading(df, frame_rate)
+  df <- calculate_groups(df, threshold_distance)
+  df <- calculate_nearest_neighbor_distance(df)
+  df <- calculate_group_centroid(df)
+  df <- calculate_group_velocity_heading(df, frame_rate)
+  
+  df_cohesion <- calculate_cohesion(df)
+  df_alignment <- calculate_alignment(df)
+  
+  df <- left_join(df, df_cohesion, by = c("frame", "group_id"))
+  df <- left_join(df, df_alignment, by = c("frame", "group_id"))
+  
+  # Identify the leader fish
+  df <- calculate_leader(df)
+  
+  # Track leadership changes
+  df <- calculate_leadership_changes(df)
+  
+  combined_df <- bind_rows(combined_df, df)
+  
+  # Print the progress
+  print(paste("Processed file", iteration, "of", length(csv_files)))
+  
+  # Increment the counter
+  iteration <- iteration + 1
+}
+
+combined_df <- as.data.frame(combined_df)
+```
+
+#creating all the other dataframes
+```{r}
+
+combined_df2 <- combined_df |> 
+  mutate(id = str_sub(trial, start = 3, end = 6)) |> 
+  select(-trial)
+
+binned_df <- summarize_per_minute(combined_df2)
+
+indv_summary_df <- summarise_individual_sociality(combined_df) |> 
+  mutate(id = str_sub(trial, start = 3, end = 6))
+
+summary_df <- summarize_trial(combined_df) |> 
+  mutate(id = str_sub(trial, start = 3, end = 6))
+
+summary_df <- rank_leaders(summary_df)
+```
+
+## Plot to check the smothing profiles influence on the track
+```{r}
+trial_to_check = "c2_1"
+
+plot_df <- combined_df2 |> 
+  dplyr::filter(id == trial_to_check & frame < 2000) |> 
+  mutate(window = x + y,
+         window_smoothed = x_smooth + y_smooth)
+
+plot_raw <- ggplot(data = plot_df, aes(x = seconds, y = window_smoothed, color = fish_id))+
+  geom_point(color = "black") +
+  geom_point(aes(y = window), size = 0.05)
+
+plot_raw
+```
+
+Here the coloured dots represent the raw tracks whilst the black dots are the smoothed and NA filled tracks
+
+#Reading in covariate information
+```{r}
+morphs_df <- read_excel("./2-data/SU-POL-TEM.xlsx", sheet = 'weight_length')
+conditions_df <- read_excel("./2-data/SU-POL-TEM.xlsx", sheet = 'trial_temp_info')
+source_pop_info_df <- read_excel("./2-data/SU-POL-TEM.xlsx", sheet = 'ID and Conditions')
+
+morphs_df$weight <- as.numeric(morphs_df$weight)
+
+morphs_df <- morphs_df |> 
+  group_by(id) |> 
+  reframe(
+      mean_std_length = mean(s_length, na.rm = TRUE),
+      mean_total_length = mean(t_length, na.rm = TRUE),
+      mean_weight = mean(weight, na.rm = TRUE),
+      sd_std_length = sd(s_length, na.rm = TRUE),
+      sd_total_length = sd(t_length, na.rm = TRUE),
+      sd_weight = sd(weight, na.rm = TRUE),
+      replicate = replicate,
+      batch = batch,
+      treatment = treatment,
+      selection = ifelse(selection == "w", "wildtype", "social")
+    )
+
+morphs_df <- unique(morphs_df)
+
+conditions_df <- conditions_df |> 
+  mutate(trial_time = str_sub(time, start = 12, end = 16),
+         camera = paste0("cam ", camera)) |> 
+  rename(trial_date = date,
+         trial_round = round
+         ) |> 
+  select(c("id", "trial_date", "trial_time", "trial_round", "temp", "camera"))
+
+final_df <- merge(summary_df, merge(morphs_df, conditions_df, by = "id"), by = "id")
+final_combined_df <- merge(combined_df2, merge(morphs_df, conditions_df, by = "id"), by = "id")
+binned_df <- merge(binned_df, merge(morphs_df, merge(summary_df, conditions_df, by = "id"), by = "id"), by = "id")
+indv_summary_df <- merge(indv_summary_df, merge(morphs_df, merge(summary_df, conditions_df, by = "id"), by = "id"), by = "id")
+
+final_combined_df <- final_combined_df |> 
+  select(-c("x", "y", "x_fill", "y_fill", "delta_x", "delta_y", "point_id", "group_id")) |> 
+  rename(x = x_smooth, 
+         y = y_smooth)
+
+indv_summary_df <- indv_summary_df |> 
+  rowwise() |> 
+  mutate(
+    # Extract the total leading time for the fish based on fish_id
+    time_leading = get(paste0("leading_time_", fish_id)),
+    
+    # Extract the leadership rank based on the fish_id
+    leadership_rank = case_when(
+      get(paste0("leading_time_", fish_id)) == primary_leader_time ~ "1",
+      get(paste0("leading_time_", fish_id)) == secondary_leader_time ~ "2",
+      get(paste0("leading_time_", fish_id)) == tertiary_leader_time ~ "3",
+      get(paste0("leading_time_", fish_id)) == quaternary_leader_time ~ "4",
+      get(paste0("leading_time_", fish_id)) == quinary_leader_time ~ "5",
+      TRUE ~ "Not a Leader"
+    )
+  ) |> 
+  ungroup()
+```
+
+
+#Writing the dataframes
+```{r}
+#writing the summary df
+fwrite(final_df, "./2-data/final_df.csv")
+
+fwrite(binned_df, "./2-data/binned_df.csv")
+
+fwrite(indv_summary_df, "./2-data/indv_summary_df.csv")
+
+#writing the time series df in multiple files so that it can be stored on github lfs
+rows_per_chunk <- 1e9 / (object.size(final_combined_df) / nrow(final_combined_df)) # Adjust this value
+split_data <- split(final_combined_df, ceiling(seq_along(1:nrow(final_combined_df)) / rows_per_chunk))
+for (i in seq_along(split_data)) {
+  fwrite(split_data[[i]], paste0("./2-data/combined_df_part_", i, ".csv"))
+}
+```
+
