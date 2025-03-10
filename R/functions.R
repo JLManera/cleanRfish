@@ -201,6 +201,6 @@ smooth_path <- function(path_df, p = 3, n = 13) {
 find_smooth_path <- function(df, p = 3, n = 13) {
   df |>
     find_path() |>
-    smooth_path(na.fill = na.fill, p = p, n = n)
+    smooth_path(p = p, n = n)
 }
 
