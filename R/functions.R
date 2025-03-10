@@ -40,7 +40,7 @@
 #'
 #' @seealso \code{\link{detect_jumps_MAD}} for MAD-based jump detection
 #' @export
-detect_jumps_EM <- function(df, prob_threshold = 0.9,
+detect_jumps_EM <- function(df, prob_threshold = 0.99,
                             min_velocity_points = 50,
                             mad_multiplier = 8) {
   # Calculate velocities
@@ -205,10 +205,10 @@ find_path <- function(df, method = c("EM", "MAD")) {
     dplyr::filter(!is.na(x) & !is.na(y) & !is.na(time))
 
   # Apply selected jump detection
-  if (method == "EM") {
-    jump_df <- detect_jumps_EM(processed_df)
-  } else {
+  if (method == "MAD") {
     jump_df <- detect_jumps_MAD(processed_df)
+  } else {
+    jump_df <- detect_jumps_EM(processed_df)
   }
 
   # Segment identification
