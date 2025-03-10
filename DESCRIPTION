@@ -24,7 +24,5 @@ Imports:
   tidyr (>= 1.2.0),
   stats,
   signal (>= 0.7.7),
-  zoo (>= 1.8.10),
-  mcp (>= 0.3.0),
-  rstan (>= 2.21.0)
+  zoo (>= 1.8.10)
 RoxygenNote: 7.3.2
