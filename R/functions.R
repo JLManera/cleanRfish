@@ -62,7 +62,7 @@ detect_jumps_EM <- function(df, prob_threshold = 0.99,
   if (length(velocities) >= min_velocity_points) {
     gmm_fit <- tryCatch({
       set.seed(123)
-      mixtools::normalmixEM(velocities, k = 2, maxit = 100)
+      mixtools::normalmixEM(velocities, k = 2, maxit = 200)
     }, error = function(e) NULL)
 
     if (!is.null(gmm_fit)) {
