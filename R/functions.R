@@ -78,7 +78,7 @@ get_individual_ids <- function(df) {
 
 #' Identify Continuous Path Segments (Multi-Individual Support)
 #' @export
-find_path <- function(df, method = c("EM", "MAD"), time_bias = 10) {
+find_path <- function(df, method = c("EM", "MAD")) {
   method <- match.arg(method)
   ids <- get_individual_ids(df)
   if (length(ids) == 0) stop("No valid individual columns found")
@@ -170,7 +170,7 @@ find_path <- function(df, method = c("EM", "MAD"), time_bias = 10) {
           delta_t = start_time - current_end$end_time,
           proj_x = current_end$end_x + dx_dt * delta_t,
           proj_y = current_end$end_y + dy_dt * delta_t,
-          distance = sqrt((start_x - proj_x)^2 + (start_y - proj_y)^2 + (time_bias * delta_t)^2)
+          distance = sqrt((start_x - proj_x)^2 + (start_y - proj_y)^2 + (10 * delta_t)^2)
         ) |>
         dplyr::arrange(distance, segment_id)
 
@@ -258,7 +258,7 @@ smooth_path <- function(path_df, p = 3, n = 13) {
 
 #' Complete Processing Pipeline
 #' @export
-find_smooth_path <- function(df, method = c("EM", "MAD"), p = 3, n = 13, time_bias = 10) {
+find_smooth_path <- function(df, method = c("EM", "MAD"), p = 3, n = 13) {
   method <- match.arg(method)
   df |>
     find_path(method = method) |>
