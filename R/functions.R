@@ -437,15 +437,15 @@ connect_spline <- function(segments_summary, processed_df,
       use_points <- min(nrow(current_segment), min_points)
       recent_segment <- tail(current_segment, use_points)
 
-      # Check if we have enough unique time points
+      # Check number of unique time values
       unique_times <- length(unique(recent_segment$time))
 
-      if (unique_times < 5) {
-        # Fall back to linear regression if not enough unique time points
+      # Need at least 4 unique time points for spline
+      if (unique_times < 4) {
+        # Use linear regression instead
         lm_x <- stats::lm(x ~ time, data = recent_segment)
         lm_y <- stats::lm(y ~ time, data = recent_segment)
 
-        # Create prediction function using linear model
         project_position <- function(future_time) {
           pred_df <- data.frame(time = future_time)
           pred_x <- stats::predict(lm_x, newdata = pred_df)
@@ -454,16 +454,35 @@ connect_spline <- function(segments_summary, processed_df,
           c(pred_x, pred_y)
         }
       } else {
-        # Try-catch block for spline fitting with explicit smoothing parameter
+        # Try-catch for spline fitting
         tryCatch({
-          # Use cubic splines for prediction with explicit smoothing parameters
-          # Higher df value (lower smoothing) for more points
-          spline_df <- min(unique_times - 2, max(3, floor(unique_times/3)))
+          # Prepare data with unique time points to avoid issues
+          # Add a small jitter to time values that are too close
+          time_diff <- diff(sort(unique(recent_segment$time)))
+          min_diff <- min(time_diff)
+          tol_value <- max(1e-6, min_diff/10)
 
-          spline_x <- stats::smooth.spline(recent_segment$time, recent_segment$x,
-                                           df = spline_df)
-          spline_y <- stats::smooth.spline(recent_segment$time, recent_segment$y,
-                                           df = spline_df)
+          # Use cubic splines with fixed degrees of freedom
+          # Set df to a value between ncol/4 and ncol/2 to ensure smoothness
+          target_df <- min(max(4, unique_times/4), unique_times - 1)
+
+          spline_x <- tryCatch({
+            stats::smooth.spline(recent_segment$time, recent_segment$x,
+                                 df = target_df, tol = tol_value)
+          }, error = function(e) {
+            # Try with higher tol if first attempt fails
+            stats::smooth.spline(recent_segment$time, recent_segment$x,
+                                 df = target_df, tol = min_diff/2)
+          })
+
+          spline_y <- tryCatch({
+            stats::smooth.spline(recent_segment$time, recent_segment$y,
+                                 df = target_df, tol = tol_value)
+          }, error = function(e) {
+            # Try with higher tol if first attempt fails
+            stats::smooth.spline(recent_segment$time, recent_segment$y,
+                                 df = target_df, tol = min_diff/2)
+          })
 
           # Create prediction function using spline models
           project_position <- function(future_time) {
@@ -488,7 +507,7 @@ connect_spline <- function(segments_summary, processed_df,
             c(pred_x, pred_y)
           }
         }, error = function(e) {
-          # Fall back to linear regression if spline fails
+          # If spline fitting fails completely, use linear regression
           lm_x <- stats::lm(x ~ time, data = recent_segment)
           lm_y <- stats::lm(y ~ time, data = recent_segment)
 
