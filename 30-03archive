@@ -1,0 +1,463 @@
+#' Detect Jumps Using Expectation-Maximization (GMM)
+#' @export
+detect_jumps_EM <- function(df, prob_threshold,
+                            min_velocity_points = 50,
+                            mad_multiplier = 8) {
+  df <- df |>
+    dplyr::mutate(
+      delta_x = x - dplyr::lag(x),
+      delta_y = y - dplyr::lag(y),
+      delta_t = time - dplyr::lag(time),
+      velocity = sqrt(delta_x^2 + delta_y^2) / delta_t,
+      velocity = ifelse(is.infinite(velocity), NA, velocity)
+    )
+
+  velocities <- df$velocity[!is.na(df$velocity)]
+
+  df$jump_prob <- NA_real_
+  df$is_jump <- FALSE
+
+  if (length(velocities) >= min_velocity_points) {
+    gmm_fit <- tryCatch({
+      set.seed(123)
+      mixtools::normalmixEM(velocities, k = 2, maxit = 200)
+    }, error = function(e) NULL)
+
+    if (!is.null(gmm_fit)) {
+      normal_comp <- which.min(gmm_fit$mu)
+      valid_idx <- which(!is.na(df$velocity))
+      df$jump_prob[valid_idx] <- 1 - gmm_fit$posterior[, normal_comp]
+      df$is_jump <- df$jump_prob > prob_threshold
+      return(df)
+    }
+  }
+
+  mad_df <- detect_jumps_MAD(df, mad_multiplier = mad_multiplier)
+  if (!"jump_prob" %in% names(mad_df)) {
+    mad_df$jump_prob <- NA_real_
+  }
+  mad_df
+}
+
+#' Detect Jumps Using Median Absolute Deviation (MAD)
+#' @export
+detect_jumps_MAD <- function(df, mad_multiplier = 8) {
+  df |>
+    dplyr::mutate(
+      delta_x = x - dplyr::lag(x),
+      delta_y = y - dplyr::lag(y),
+      delta_t = time - dplyr::lag(time),
+      velocity = sqrt(delta_x^2 + delta_y^2) / delta_t,
+      velocity = ifelse(is.infinite(velocity), NA, velocity),
+      med_velocity = stats::median(velocity, na.rm = TRUE),
+      mad_velocity = stats::mad(velocity, na.rm = TRUE),
+      velocity_threshold = med_velocity + mad_multiplier * mad_velocity,
+      is_jump = velocity > velocity_threshold
+    )
+}
+
+# Helper function to detect individual IDs from column names
+get_individual_ids <- function(df) {
+  x_cols <- grep("^x\\d+$", names(df), value = TRUE)
+  x_ids <- unique(sub("^x", "", x_cols))
+
+  # Validate corresponding y columns exist
+  valid_ids <- x_ids[paste0("y", x_ids) %in% names(df)]
+
+  if (length(valid_ids) > 0) {
+    num_ids <- suppressWarnings(as.numeric(valid_ids))
+    if (!any(is.na(num_ids))) {
+      return(as.character(sort(num_ids)))
+    }
+    return(sort(valid_ids))
+  }
+  character(0)
+}
+
+#' Smooth Individual Trajectory
+smooth_individual <- function(ind_df, p = 3, n = 13) {
+  smoothed <- ind_df |>
+    dplyr::filter(!is.na(x) & !is.na(y)) |>
+    dplyr::arrange(time) |>
+    dplyr::mutate(
+      x_smooth = signal::sgolayfilt(x, p = p, n = n),
+      y_smooth = signal::sgolayfilt(y, p = p, n = n)
+    ) |>
+    dplyr::select(time, x_smooth, y_smooth)
+
+  ind_df |>
+    dplyr::left_join(smoothed, by = "time") |>
+    dplyr::mutate(
+      x_smooth = zoo::na.approx(x_smooth, na.rm = FALSE),
+      y_smooth = zoo::na.approx(y_smooth, na.rm = FALSE)
+    )
+}
+
+#' Kalman Filter Path Connection Method
+#'
+#' Uses Kalman filtering to predict and connect path segments with probabilistic ranking
+#'
+#' @param segments_summary Summary of path segments with start/end positions and times
+#' @param processed_df The processed tracking data with segment IDs
+#' @param time_bias Weight applied to temporal distance in path connection
+#' @param projection_dist Maximum number of future segments to consider
+#' @param process_noise Process noise parameter (controls model uncertainty)
+#' @param measurement_noise Measurement noise parameter (controls observation uncertainty)
+connect_kalman_projection <- function(segments_summary, processed_df,
+                                      time_bias = 10, projection_dist = 50,
+                                      process_noise = 0.1, measurement_noise = 1.0) {
+  # Check if FKF package is installed and load it
+  if (!requireNamespace("FKF", quietly = TRUE)) {
+    stop("Package 'FKF' is needed for Kalman filtering. Please install it with install.packages('FKF')")
+  }
+
+  filtered_ids <- c(1L)
+  current_id <- 1L
+
+  # Keep track of end time for delta_t calculations
+  current_end_time <- NULL
+
+  repeat {
+    # Get current segment end position
+    current_end <- segments_summary |>
+      dplyr::filter(segment_id == current_id) |>
+      dplyr::select(end_x, end_y, end_time)
+
+    current_end_time <- current_end$end_time
+
+    # Get current segment data
+    current_segment <- processed_df |>
+      dplyr::filter(as.integer(segment_id) == current_id) |>
+      dplyr::arrange(time)
+
+    # If there's only one point in the segment, simple projection is used
+    if (nrow(current_segment) < 2) {
+      med_vel <- stats::median(processed_df$velocity, na.rm = TRUE)
+
+      project_position <- function(future_time) {
+        delta_t <- future_time - current_end_time
+        pred_x <- current_end$end_x + med_vel * delta_t
+        pred_y <- current_end$end_y
+        pred_vx <- med_vel
+        pred_vy <- 0
+
+        # Return prediction with high uncertainty
+        list(
+          mean = c(pred_x, pred_y, pred_vx, pred_vy),
+          cov = diag(c(100, 100, 10, 10))  # High uncertainty
+        )
+      }
+    } else {
+      # Initialize and update Kalman filter with current segment
+
+      # Extract time differences for state transition
+      times <- current_segment$time
+      dt_vec <- diff(times)
+
+      # Extract positions
+      positions <- current_segment |>
+        dplyr::select(x, y) |>
+        as.matrix()
+
+      # Initial state estimate [x, y, vx, vy]
+      # Calculate velocities from first two points
+      if (nrow(current_segment) >= 2) {
+        init_vx <- (current_segment$x[2] - current_segment$x[1]) / dt_vec[1]
+        init_vy <- (current_segment$y[2] - current_segment$y[1]) / dt_vec[1]
+      } else {
+        init_vx <- 0
+        init_vy <- 0
+      }
+
+      a0 <- c(current_segment$x[1], current_segment$y[1], init_vx, init_vy)
+
+      # Initial state covariance (uncertainty)
+      P0 <- diag(c(1, 1, 1, 1))
+
+      # Process noise covariance - higher values for velocity components
+      Q <- diag(c(process_noise, process_noise, process_noise * 10, process_noise * 10))
+
+      # Measurement noise covariance
+      H <- matrix(c(1, 0, 0, 0,
+                    0, 1, 0, 0), 2, 4, byrow = TRUE)  # Measurement matrix
+
+      R <- diag(rep(measurement_noise, 2))  # Measurement noise
+
+      # Run the Kalman filter recursively through all points
+      kf_result <- list(
+        xf = a0,  # Filtered state
+        Pf = P0   # Filtered state covariance
+      )
+
+      for (i in 2:nrow(current_segment)) {
+        dt <- times[i] - times[i-1]
+
+        # State transition matrix
+        F <- matrix(c(
+          1, 0, dt, 0,
+          0, 1, 0, dt,
+          0, 0, 1, 0,
+          0, 0, 0, 1
+        ), 4, 4, byrow = TRUE)
+
+        # Prediction step
+        x_pred <- F %*% kf_result$xf
+        P_pred <- F %*% kf_result$Pf %*% t(F) + Q
+
+        # Update step
+        y <- matrix(positions[i, ], ncol = 1)  # Current measurement
+        y_pred <- H %*% x_pred                 # Predicted measurement
+
+        S <- H %*% P_pred %*% t(H) + R
+        K <- P_pred %*% t(H) %*% solve(S)      # Kalman gain
+
+        # Updated state and covariance
+        kf_result$xf <- x_pred + K %*% (y - y_pred)
+        kf_result$Pf <- (diag(4) - K %*% H) %*% P_pred
+      }
+
+      # Final state and covariance after filtering
+      final_state <- kf_result$xf
+      final_covariance <- kf_result$Pf
+
+      # Create projection function using Kalman predictions
+      project_position <- function(future_time) {
+        dt <- future_time - current_end_time
+
+        # State transition for projection
+        F_proj <- matrix(c(
+          1, 0, dt, 0,
+          0, 1, 0, dt,
+          0, 0, 1, 0,
+          0, 0, 0, 1
+        ), 4, 4, byrow = TRUE)
+
+        # Project state forward
+        pred_state <- F_proj %*% final_state
+        pred_cov <- F_proj %*% final_covariance %*% t(F_proj) + Q * (dt/0.05)  # Scale process noise with time
+
+        list(
+          mean = pred_state,
+          cov = pred_cov
+        )
+      }
+    }
+
+    # Find potential next segments
+    candidates <- segments_summary |>
+      dplyr::filter(segment_id > current_id) |>
+      dplyr::slice_head(n = projection_dist)
+
+    if (nrow(candidates) == 0) break
+
+    # Calculate Mahalanobis distances to projected positions
+    candidates <- candidates |>
+      dplyr::mutate(
+        delta_t = start_time - current_end_time
+      ) |>
+      dplyr::rowwise() |>
+      dplyr::mutate(
+        # Get Kalman prediction
+        prediction = list(project_position(start_time)),
+        # Extract components
+        pred_x = prediction$mean[1],
+        pred_y = prediction$mean[2],
+        pred_vx = prediction$mean[3],
+        pred_vy = prediction$mean[4],
+        # Get position covariance submatrix (2x2 top-left of full covariance)
+        pos_cov = list(prediction$cov[1:2, 1:2]),
+        # Calculate Mahalanobis distance for position only
+        diff_vec = list(c(start_x - pred_x, start_y - pred_y)),
+        mahalanobis_dist = sqrt(t(diff_vec) %*% solve(pos_cov) %*% diff_vec),
+        # Add time penalty
+        distance = mahalanobis_dist + time_bias * delta_t,
+        # Calculate probability (proportional to exp(-0.5 * mahalanobis_dist^2))
+        probability = exp(-0.5 * mahalanobis_dist^2)
+      ) |>
+      dplyr::ungroup() |>
+      dplyr::select(-prediction, -pos_cov, -diff_vec) |>
+      dplyr::arrange(distance, segment_id)
+
+    if (nrow(candidates) > 0) {
+      current_id <- candidates$segment_id[1]
+      filtered_ids <- c(filtered_ids, current_id)
+    } else break
+  }
+
+  filtered_ids
+}
+
+#' Find Path using Kalman filtering
+#' @export
+find_path <- function(df, method = c("EM", "MAD"),
+                      time_bias = 10, report_jumps = TRUE,
+                      include_segment_id = TRUE, prob_threshold = 0.95,
+                      projection_dist = 50,
+                      process_noise = 0.1, measurement_noise = 1.0) {
+  method <- match.arg(method)
+  ids <- get_individual_ids(df)
+  if (length(ids) == 0) stop("No valid individual columns found")
+
+  processed <- lapply(ids, function(id) {
+    x_col <- paste0("x", id)
+    y_col <- paste0("y", id)
+
+    ind_df <- df |>
+      dplyr::select(time, x = !!x_col, y = !!y_col) |>
+      dplyr::arrange(time)
+
+    original_df <- ind_df |>
+      dplyr::mutate(
+        original_x = x,
+        original_y = y
+      )
+
+    processed_df <- original_df |>
+      dplyr::filter(!is.na(x) & !is.na(y) & !is.na(time))
+
+    if (nrow(processed_df) == 0) return(ind_df)
+
+    jump_df <- if (method == "MAD") {
+      detect_jumps_MAD(processed_df)
+    } else {
+      detect_jumps_EM(processed_df, prob_threshold = prob_threshold)
+    }
+
+    processed_df <- jump_df |>
+      dplyr::mutate(
+        segment_id = factor(cumsum(is_jump | dplyr::row_number() == 1))
+      ) |>
+      dplyr::group_by(segment_id) |>
+      dplyr::mutate(
+        segment_duration = max(time) - min(time),
+        segment_length = dplyr::n()
+      ) |>
+      dplyr::ungroup()
+
+    segments_summary <- processed_df |>
+      dplyr::group_by(segment_id) |>
+      dplyr::summarize(
+        start_x = dplyr::first(x),
+        start_y = dplyr::first(y),
+        start_time = dplyr::first(time),
+        end_x = dplyr::last(x),
+        end_y = dplyr::last(y),
+        end_time = dplyr::last(time),
+        .groups = 'drop'
+      ) |>
+      dplyr::mutate(segment_id = as.integer(as.character(segment_id))) |>
+      dplyr::arrange(segment_id)
+
+    # Important fix for the type incompatibility issue:
+    processed_df <- processed_df |>
+      dplyr::mutate(segment_id = as.integer(as.character(segment_id)))
+
+    # Use only Kalman projection
+    filtered_ids <- connect_kalman_projection(segments_summary, processed_df,
+                                              time_bias, projection_dist,
+                                              process_noise, measurement_noise)
+
+    cols <- c("time", "x", "y")
+    if (report_jumps) cols <- c(cols, "is_jump")
+    if (include_segment_id) cols <- c(cols, "segment_id")
+
+    processed_selected <- processed_df |>
+      dplyr::filter(segment_id %in% filtered_ids) |>
+      dplyr::select(dplyr::all_of(cols))
+
+    processed_joined <- processed_selected |>
+      dplyr::right_join(original_df, by = "time") |>
+      dplyr::rename(
+        !!paste0("original_x", id) := original_x,
+        !!paste0("original_y", id) := original_y,
+        !!x_col := x.x,
+        !!y_col := y.x
+      )
+
+    if (report_jumps && "is_jump" %in% names(processed_joined)) {
+      processed_joined <- processed_joined |>
+        dplyr::rename(!!paste0("is_jump", id) := is_jump)
+    }
+
+    if (include_segment_id && "segment_id" %in% names(processed_joined)) {
+      processed_joined <- processed_joined |>
+        dplyr::rename(!!paste0("segment_id", id) := segment_id)
+    }
+
+    columns_to_select <- c("time",
+                           paste0("original_x", id),
+                           paste0("original_y", id),
+                           x_col,
+                           y_col)
+    if (report_jumps) columns_to_select <- c(columns_to_select, paste0("is_jump", id))
+    if (include_segment_id) columns_to_select <- c(columns_to_select, paste0("segment_id", id))
+
+    processed_ind <- processed_joined |>
+      dplyr::select(dplyr::all_of(columns_to_select)) |>
+      dplyr::arrange(time)
+
+    processed_ind
+  })
+
+  final_df <- purrr::reduce(processed, function(a, b) {
+    dplyr::full_join(a, b, by = "time")
+  }, .init = df |> dplyr::select(time) |> dplyr::distinct())
+
+  other_cols <- setdiff(names(df), c(unlist(lapply(ids, function(id) {
+    c(paste0("x", id), paste0("y", id))
+  })), "time"))
+
+  if (length(other_cols) > 0) {
+    final_df <- dplyr::left_join(final_df, df |> dplyr::select(time, dplyr::all_of(other_cols)), by = "time")
+  }
+
+  final_df
+}
+
+#' Smooth path after finding it
+#' @export
+smooth_path <- function(df, p = 3, n = 13) {
+  ids <- get_individual_ids(df)
+  if (length(ids) == 0) return(df)
+
+  smoothed <- lapply(ids, function(id) {
+    x_col <- paste0("x", id)
+    y_col <- paste0("y", id)
+
+    if (!(x_col %in% names(df) && y_col %in% names(df))) return(NULL)
+
+    ind_df <- df |>
+      dplyr::select(time, x = !!x_col, y = !!y_col)
+
+    smoothed_ind <- smooth_individual(ind_df, p = p, n = n)
+
+    smoothed_ind |>
+      dplyr::rename(
+        !!paste0("x_smooth", id) := x_smooth,
+        !!paste0("y_smooth", id) := y_smooth
+      ) |>
+      dplyr::select(-x, -y)
+  })
+
+  smoothed <- smoothed[!sapply(smoothed, is.null)]
+
+  if (length(smoothed) == 0) return(df)
+
+  final_smoothed <- purrr::reduce(smoothed, function(a, b) {
+    dplyr::full_join(a, b, by = "time")
+  }, .init = df)
+
+  final_smoothed
+}
+
+#' Complete Processing Pipeline with Kalman Filtering
+#' @export
+find_smooth_path <- function(df, method = c("EM", "MAD"),
+                             p = 3, n = 13, time_bias = 10,
+                             process_noise = 0.1, measurement_noise = 1.0) {
+  method <- match.arg(method)
+  df |>
+    find_path(method = method, time_bias = time_bias,
+              process_noise = process_noise, measurement_noise = measurement_noise) |>
+    smooth_path(p = p, n = n)
+}
