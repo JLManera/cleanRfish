@@ -49,8 +49,7 @@ Planned features:
 ## 🛠️ Installation
 ```r
 # Install from GitHub
-if (!require("devtools")) install.packages("devtools")
-devtools::install_github("[yourusername]/cleanRfish")
+remotes::install_github("JLManera/cleanRfish")
 ```
 
 ## 🐟 Basic Usage

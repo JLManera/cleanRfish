@@ -779,25 +779,45 @@ detect_jumps_MAD <- function(df) {
 #' @param ind_df Data frame containing time, x, and y coordinates for an individual
 #' @param p Polynomial order for Savitzky-Golay smoothing (default is 3)
 #' @param n Filter length for Savitzky-Golay smoothing (must be odd, default is 13)
+#' @param smooth_first Logical indicating whether to smooth before NA filling (default is TRUE)
+#'                    If FALSE, NA values are filled first, then smoothing is applied
 #'
 #' @return Data frame with additional columns for smoothed x and y coordinates
-smooth_individual <- function(ind_df, p = 3, n = 13) {
-  smoothed <- ind_df |>
-    dplyr::filter(!is.na(x) & !is.na(y)) |>
-    dplyr::arrange(time) |>
-    dplyr::mutate(
-      x_smooth = signal::sgolayfilt(x, p = p, n = n),
-      y_smooth = signal::sgolayfilt(y, p = p, n = n)
-    ) |>
-    dplyr::select(time, x_smooth, y_smooth)
+smooth_individual <- function(ind_df, p = 3, n = 13, smooth_first = FALSE) {
+  if (smooth_first) {
+    # Original approach: smooth first, then fill NAs
+    smoothed <- ind_df |>
+      dplyr::filter(!is.na(x) & !is.na(y)) |>
+      dplyr::arrange(time) |>
+      dplyr::mutate(
+        x_smooth = signal::sgolayfilt(x, p = p, n = n),
+        y_smooth = signal::sgolayfilt(y, p = p, n = n)
+      ) |>
+      dplyr::select(time, x_smooth, y_smooth)
 
-  ind_df |>
-    dplyr::left_join(smoothed, by = "time") |>
-    dplyr::mutate(
-      x_smooth = zoo::na.approx(x_smooth, na.rm = FALSE),
-      y_smooth = zoo::na.approx(y_smooth, na.rm = FALSE)
-    )
+    ind_df |>
+      dplyr::left_join(smoothed, by = "time") |>
+      dplyr::mutate(
+        x_smooth = zoo::na.approx(x_smooth, na.rm = FALSE),
+        y_smooth = zoo::na.approx(y_smooth, na.rm = FALSE)
+      )
+  } else {
+    # Alternative approach: fill NAs first, then smooth
+    filled <- ind_df |>
+      dplyr::arrange(time) |>
+      dplyr::mutate(
+        x_filled = zoo::na.approx(x, na.rm = FALSE),
+        y_filled = zoo::na.approx(y, na.rm = FALSE)
+      )
+
+    filled |>
+      dplyr::mutate(
+        x_smooth = signal::sgolayfilt(x_filled, p = p, n = n),
+        y_smooth = signal::sgolayfilt(y_filled, p = p, n = n)
+      )
+  }
 }
+
 
 #' Smooth path after finding it
 #'
