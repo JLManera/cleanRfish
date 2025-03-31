@@ -505,8 +505,7 @@ connect_spline <- function(segments_summary, processed_df,
 #' Find Path using selected path connection method
 #'
 #' This function identifies a continuous path by connecting trajectory segments using
-#' the specified connection method. Handles both standard tracking data (x1, y1)
-#' and single individual data (x, y).
+#' the specified connection method.
 #'
 #' @param df Data frame containing tracking data with time, x, and y coordinates
 #' @param method Method for jump detection: either "EM" (Expectation-Maximization) or "MAD" (Median Absolute Deviation)
@@ -533,50 +532,22 @@ find_path <- function(df, method = c("EM", "MAD"),
                       min_points = 100) {
   method <- match.arg(method)
   connection_method <- match.arg(connection_method)
-
-  # Handle simple x, y columns by creating temporary x1, y1 columns if needed
-  has_simple_columns <- all(c("x", "y") %in% names(df)) &&
-    !any(grepl("^x\\d+$", names(df))) &&
-    !any(grepl("^y\\d+$", names(df)))
-
-  temp_df <- df
-  if (has_simple_columns) {
-    temp_df <- df %>%
-      dplyr::mutate(
-        x1 = x,
-        y1 = y
-      )
-  }
-
-  ids <- get_individual_ids(temp_df)
+  ids <- get_individual_ids(df)
   if (length(ids) == 0) stop("No valid individual columns found")
 
   processed <- lapply(ids, function(id) {
     x_col <- paste0("x", id)
     y_col <- paste0("y", id)
 
-    # Select columns based on whether we're using original or temporary columns
-    if (has_simple_columns && id == "1") {
-      ind_df <- df |>
-        dplyr::select(time, x, y) |>
-        dplyr::arrange(time)
+    ind_df <- df |>
+      dplyr::select(time, x = !!x_col, y = !!y_col) |>
+      dplyr::arrange(time)
 
-      original_df <- ind_df |>
-        dplyr::mutate(
-          original_x = x,
-          original_y = y
-        )
-    } else {
-      ind_df <- df |>
-        dplyr::select(time, x = !!x_col, y = !!y_col) |>
-        dplyr::arrange(time)
-
-      original_df <- ind_df |>
-        dplyr::mutate(
-          original_x = x,
-          original_y = y
-        )
-    }
+    original_df <- ind_df |>
+      dplyr::mutate(
+        original_x = x,
+        original_y = y
+      )
 
     processed_df <- original_df |>
       dplyr::filter(!is.na(x) & !is.na(y) & !is.na(time))
@@ -640,59 +611,32 @@ find_path <- function(df, method = c("EM", "MAD"),
       dplyr::filter(segment_id %in% filtered_ids) |>
       dplyr::select(dplyr::all_of(cols))
 
-    # Handle column renaming differently for simple x/y vs indexed columns
-    if (has_simple_columns && id == "1") {
-      processed_joined <- processed_selected |>
-        dplyr::right_join(original_df, by = "time") |>
-        dplyr::rename(
-          original_x = original_x,
-          original_y = original_y,
-          x = x.x,
-          y = y.x
-        )
+    processed_joined <- processed_selected |>
+      dplyr::right_join(original_df, by = "time") |>
+      dplyr::rename(
+        !!paste0("original_x", id) := original_x,
+        !!paste0("original_y", id) := original_y,
+        !!x_col := x.x,
+        !!y_col := y.x
+      )
 
-      if (report_jumps && "is_jump" %in% names(processed_joined)) {
-        processed_joined <- processed_joined |>
-          dplyr::rename(is_jump = is_jump)
-      }
-
-      if (include_segment_id && "segment_id" %in% names(processed_joined)) {
-        processed_joined <- processed_joined |>
-          dplyr::rename(segment_id = segment_id)
-      }
-
-      columns_to_select <- c("time", "original_x", "original_y", "x", "y")
-      if (report_jumps) columns_to_select <- c(columns_to_select, "is_jump")
-      if (include_segment_id) columns_to_select <- c(columns_to_select, "segment_id")
-
-    } else {
-      processed_joined <- processed_selected |>
-        dplyr::right_join(original_df, by = "time") |>
-        dplyr::rename(
-          !!paste0("original_x", id) := original_x,
-          !!paste0("original_y", id) := original_y,
-          !!x_col := x.x,
-          !!y_col := y.x
-        )
-
-      if (report_jumps && "is_jump" %in% names(processed_joined)) {
-        processed_joined <- processed_joined |>
-          dplyr::rename(!!paste0("is_jump", id) := is_jump)
-      }
-
-      if (include_segment_id && "segment_id" %in% names(processed_joined)) {
-        processed_joined <- processed_joined |>
-          dplyr::rename(!!paste0("segment_id", id) := segment_id)
-      }
-
-      columns_to_select <- c("time",
-                             paste0("original_x", id),
-                             paste0("original_y", id),
-                             x_col,
-                             y_col)
-      if (report_jumps) columns_to_select <- c(columns_to_select, paste0("is_jump", id))
-      if (include_segment_id) columns_to_select <- c(columns_to_select, paste0("segment_id", id))
+    if (report_jumps && "is_jump" %in% names(processed_joined)) {
+      processed_joined <- processed_joined |>
+        dplyr::rename(!!paste0("is_jump", id) := is_jump)
     }
+
+    if (include_segment_id && "segment_id" %in% names(processed_joined)) {
+      processed_joined <- processed_joined |>
+        dplyr::rename(!!paste0("segment_id", id) := segment_id)
+    }
+
+    columns_to_select <- c("time",
+                           paste0("original_x", id),
+                           paste0("original_y", id),
+                           x_col,
+                           y_col)
+    if (report_jumps) columns_to_select <- c(columns_to_select, paste0("is_jump", id))
+    if (include_segment_id) columns_to_select <- c(columns_to_select, paste0("segment_id", id))
 
     processed_ind <- processed_joined |>
       dplyr::select(dplyr::all_of(columns_to_select)) |>
@@ -701,37 +645,21 @@ find_path <- function(df, method = c("EM", "MAD"),
     processed_ind
   })
 
-  # Combine results based on individual IDs
-  if (has_simple_columns) {
-    # For simple x,y case, just return the processed dataframe directly
-    final_df <- processed[[1]]
-  } else {
-    # For multiple individuals, join all results
-    final_df <- purrr::reduce(processed, function(a, b) {
-      dplyr::full_join(a, b, by = "time")
-    }, .init = df |> dplyr::select(time) |> dplyr::distinct())
-  }
+  final_df <- purrr::reduce(processed, function(a, b) {
+    dplyr::full_join(a, b, by = "time")
+  }, .init = df |> dplyr::select(time) |> dplyr::distinct())
 
-  # Add back any other columns from the original dataframe
-  if (!has_simple_columns) {
-    other_cols <- setdiff(names(df), c(unlist(lapply(ids, function(id) {
-      c(paste0("x", id), paste0("y", id))
-    })), "time"))
+  other_cols <- setdiff(names(df), c(unlist(lapply(ids, function(id) {
+    c(paste0("x", id), paste0("y", id))
+  })), "time"))
 
-    if (length(other_cols) > 0) {
-      final_df <- dplyr::left_join(final_df, df |> dplyr::select(time, dplyr::all_of(other_cols)), by = "time")
-    }
-  } else {
-    # For simple x,y case, add back other columns
-    other_cols <- setdiff(names(df), c("x", "y", "time"))
-
-    if (length(other_cols) > 0) {
-      final_df <- dplyr::left_join(final_df, df |> dplyr::select(time, dplyr::all_of(other_cols)), by = "time")
-    }
+  if (length(other_cols) > 0) {
+    final_df <- dplyr::left_join(final_df, df |> dplyr::select(time, dplyr::all_of(other_cols)), by = "time")
   }
 
   final_df
 }
+
 #' Complete Processing Pipeline with Selected Connection Method
 #'
 #' This function combines path finding and smoothing into a single pipeline.
@@ -918,26 +846,16 @@ smooth_path <- function(df, p = 3, n = 13) {
 #' Helper function to detect individual IDs from column names
 #'
 #' Extracts individual identifiers from column names that follow the pattern 'x1', 'y1', etc.
-#' If the dataframe only contains 'x' and 'y' columns (without numeric identifiers),
-#' it assigns an ID of '1' to represent a single individual.
 #'
 #' @param df Data frame containing tracking data
 #' @return Character vector of detected individual IDs
 get_individual_ids <- function(df) {
-  # First check for standard pattern 'x1', 'y1', etc.
   x_cols <- grep("^x\\d+$", names(df), value = TRUE)
   x_ids <- unique(sub("^x", "", x_cols))
+
   # Validate corresponding y columns exist
   valid_ids <- x_ids[paste0("y", x_ids) %in% names(df)]
 
-  # If no standard IDs found, check for simple 'x' and 'y' columns
-  if (length(valid_ids) == 0) {
-    if (all(c("x", "y") %in% names(df))) {
-      return("1") # Return "1" as the ID for a single individual
-    }
-  }
-
-  # Return sorted numeric IDs if possible
   if (length(valid_ids) > 0) {
     num_ids <- suppressWarnings(as.numeric(valid_ids))
     if (!any(is.na(num_ids))) {
@@ -945,12 +863,8 @@ get_individual_ids <- function(df) {
     }
     return(sort(valid_ids))
   }
-
   character(0)
 }
-
-
-
 
 #' Convert seconds to ASS time format
 #'
