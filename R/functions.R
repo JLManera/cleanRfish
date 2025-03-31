@@ -363,6 +363,18 @@ connect_linear_regression <- function(segments_summary, processed_df,
 #' @param min_points Minimum number of points to use for spline fitting (defaults to 25)
 #'
 #' @return Vector of segment IDs that form the connected path
+#' Spline Path Connection Method using mgcv
+#'
+#' Uses GAM spline models from mgcv package to predict and connect path segments.
+#' This method can capture non-linear trends better than simple linear regression.
+#'
+#' @param segments_summary Summary of path segments with start/end positions and times
+#' @param processed_df The processed tracking data with segment IDs
+#' @param time_bias Weight applied to temporal distance in path connection
+#' @param projection_dist Maximum number of future segments to consider in the projection
+#' @param min_points Minimum number of points to use for spline fitting (defaults to 25)
+#'
+#' @return Vector of segment IDs that form the connected path
 connect_spline <- function(segments_summary, processed_df,
                            time_bias = 10, projection_dist = 10,
                            min_points = 25) {
@@ -433,93 +445,39 @@ connect_spline <- function(segments_summary, processed_df,
         }
       }
     } else {
-      # Fit natural splines for x and y based on time
+      # Use mgcv GAM models for spline fitting
       use_points <- min(nrow(current_segment), min_points)
       recent_segment <- tail(current_segment, use_points)
 
-      # Check number of unique time values
+      # Calculate number of unique time points for setting k
       unique_times <- length(unique(recent_segment$time))
 
-      # Need at least 4 unique time points for spline
-      if (unique_times < 4) {
-        # Use linear regression instead
-        lm_x <- stats::lm(x ~ time, data = recent_segment)
-        lm_y <- stats::lm(y ~ time, data = recent_segment)
+      # Fit GAM models with optimal smoothing for x and y based on time
+      gam_x <- mgcv::gam(x ~ s(time, k = min(10, unique_times)), data = recent_segment)
+      gam_y <- mgcv::gam(y ~ s(time, k = min(10, unique_times)), data = recent_segment)
 
-        project_position <- function(future_time) {
+      # Create prediction function using GAM models
+      project_position <- function(future_time) {
+        # Ensure future_time is within a reasonable extrapolation range
+        max_extrap_time <- max(recent_segment$time) + 0.25 * (max(recent_segment$time) - min(recent_segment$time))
+
+        if (future_time > max_extrap_time) {
+          # Linear extrapolation beyond spline range
+          last_few <- tail(recent_segment, 5)
+          lm_x_extrap <- stats::lm(x ~ time, data = last_few)
+          lm_y_extrap <- stats::lm(y ~ time, data = last_few)
+
           pred_df <- data.frame(time = future_time)
-          pred_x <- stats::predict(lm_x, newdata = pred_df)
-          pred_y <- stats::predict(lm_y, newdata = pred_df)
-
-          c(pred_x, pred_y)
+          pred_x <- stats::predict(lm_x_extrap, newdata = pred_df)
+          pred_y <- stats::predict(lm_y_extrap, newdata = pred_df)
+        } else {
+          # Use GAM prediction
+          pred_df <- data.frame(time = future_time)
+          pred_x <- stats::predict(gam_x, newdata = pred_df)
+          pred_y <- stats::predict(gam_y, newdata = pred_df)
         }
-      } else {
-        # Try-catch for spline fitting
-        tryCatch({
-          # Prepare data with unique time points to avoid issues
-          # Add a small jitter to time values that are too close
-          time_diff <- diff(sort(unique(recent_segment$time)))
-          min_diff <- min(time_diff)
-          tol_value <- max(1e-6, min_diff/10)
 
-          # Use cubic splines with fixed degrees of freedom
-          # Set df to a value between ncol/4 and ncol/2 to ensure smoothness
-          target_df <- min(max(4, unique_times/4), unique_times - 1)
-
-          spline_x <- tryCatch({
-            stats::smooth.spline(recent_segment$time, recent_segment$x,
-                                 df = target_df, tol = tol_value)
-          }, error = function(e) {
-            # Try with higher tol if first attempt fails
-            stats::smooth.spline(recent_segment$time, recent_segment$x,
-                                 df = target_df, tol = min_diff/2)
-          })
-
-          spline_y <- tryCatch({
-            stats::smooth.spline(recent_segment$time, recent_segment$y,
-                                 df = target_df, tol = tol_value)
-          }, error = function(e) {
-            # Try with higher tol if first attempt fails
-            stats::smooth.spline(recent_segment$time, recent_segment$y,
-                                 df = target_df, tol = min_diff/2)
-          })
-
-          # Create prediction function using spline models
-          project_position <- function(future_time) {
-            # Ensure future_time is within a reasonable extrapolation range
-            max_extrap_time <- max(recent_segment$time) + 0.25 * (max(recent_segment$time) - min(recent_segment$time))
-
-            if (future_time > max_extrap_time) {
-              # Linear extrapolation beyond spline range
-              last_few <- tail(recent_segment, 5)
-              lm_x_extrap <- stats::lm(x ~ time, data = last_few)
-              lm_y_extrap <- stats::lm(y ~ time, data = last_few)
-
-              pred_df <- data.frame(time = future_time)
-              pred_x <- stats::predict(lm_x_extrap, newdata = pred_df)
-              pred_y <- stats::predict(lm_y_extrap, newdata = pred_df)
-            } else {
-              # Use spline prediction
-              pred_x <- stats::predict(spline_x, future_time)$y
-              pred_y <- stats::predict(spline_y, future_time)$y
-            }
-
-            c(pred_x, pred_y)
-          }
-        }, error = function(e) {
-          # If spline fitting fails completely, use linear regression
-          lm_x <- stats::lm(x ~ time, data = recent_segment)
-          lm_y <- stats::lm(y ~ time, data = recent_segment)
-
-          # Create prediction function using linear model
-          project_position <<- function(future_time) {
-            pred_df <- data.frame(time = future_time)
-            pred_x <- stats::predict(lm_x, newdata = pred_df)
-            pred_y <- stats::predict(lm_y, newdata = pred_df)
-
-            c(pred_x, pred_y)
-          }
-        })
+        c(pred_x, pred_y)
       }
     }
 
