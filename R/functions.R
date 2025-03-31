@@ -437,31 +437,70 @@ connect_spline <- function(segments_summary, processed_df,
       use_points <- min(nrow(current_segment), min_points)
       recent_segment <- tail(current_segment, use_points)
 
-      # Use cubic splines for prediction
-      spline_x <- stats::smooth.spline(recent_segment$time, recent_segment$x)
-      spline_y <- stats::smooth.spline(recent_segment$time, recent_segment$y)
+      # Check if we have enough unique time points
+      unique_times <- length(unique(recent_segment$time))
 
-      # Create prediction function using spline models
-      project_position <- function(future_time) {
-        # Ensure future_time is within a reasonable extrapolation range
-        max_extrap_time <- max(recent_segment$time) + 0.25 * (max(recent_segment$time) - min(recent_segment$time))
+      if (unique_times < 5) {
+        # Fall back to linear regression if not enough unique time points
+        lm_x <- stats::lm(x ~ time, data = recent_segment)
+        lm_y <- stats::lm(y ~ time, data = recent_segment)
 
-        if (future_time > max_extrap_time) {
-          # Linear extrapolation beyond spline range
-          last_few <- tail(recent_segment, 5)
-          lm_x_extrap <- stats::lm(x ~ time, data = last_few)
-          lm_y_extrap <- stats::lm(y ~ time, data = last_few)
-
+        # Create prediction function using linear model
+        project_position <- function(future_time) {
           pred_df <- data.frame(time = future_time)
-          pred_x <- stats::predict(lm_x_extrap, newdata = pred_df)
-          pred_y <- stats::predict(lm_y_extrap, newdata = pred_df)
-        } else {
-          # Use spline prediction
-          pred_x <- stats::predict(spline_x, future_time)$y
-          pred_y <- stats::predict(spline_y, future_time)$y
-        }
+          pred_x <- stats::predict(lm_x, newdata = pred_df)
+          pred_y <- stats::predict(lm_y, newdata = pred_df)
 
-        c(pred_x, pred_y)
+          c(pred_x, pred_y)
+        }
+      } else {
+        # Try-catch block for spline fitting with explicit smoothing parameter
+        tryCatch({
+          # Use cubic splines for prediction with explicit smoothing parameters
+          # Higher df value (lower smoothing) for more points
+          spline_df <- min(unique_times - 2, max(3, floor(unique_times/3)))
+
+          spline_x <- stats::smooth.spline(recent_segment$time, recent_segment$x,
+                                           df = spline_df)
+          spline_y <- stats::smooth.spline(recent_segment$time, recent_segment$y,
+                                           df = spline_df)
+
+          # Create prediction function using spline models
+          project_position <- function(future_time) {
+            # Ensure future_time is within a reasonable extrapolation range
+            max_extrap_time <- max(recent_segment$time) + 0.25 * (max(recent_segment$time) - min(recent_segment$time))
+
+            if (future_time > max_extrap_time) {
+              # Linear extrapolation beyond spline range
+              last_few <- tail(recent_segment, 5)
+              lm_x_extrap <- stats::lm(x ~ time, data = last_few)
+              lm_y_extrap <- stats::lm(y ~ time, data = last_few)
+
+              pred_df <- data.frame(time = future_time)
+              pred_x <- stats::predict(lm_x_extrap, newdata = pred_df)
+              pred_y <- stats::predict(lm_y_extrap, newdata = pred_df)
+            } else {
+              # Use spline prediction
+              pred_x <- stats::predict(spline_x, future_time)$y
+              pred_y <- stats::predict(spline_y, future_time)$y
+            }
+
+            c(pred_x, pred_y)
+          }
+        }, error = function(e) {
+          # Fall back to linear regression if spline fails
+          lm_x <- stats::lm(x ~ time, data = recent_segment)
+          lm_y <- stats::lm(y ~ time, data = recent_segment)
+
+          # Create prediction function using linear model
+          project_position <<- function(future_time) {
+            pred_df <- data.frame(time = future_time)
+            pred_x <- stats::predict(lm_x, newdata = pred_df)
+            pred_y <- stats::predict(lm_y, newdata = pred_df)
+
+            c(pred_x, pred_y)
+          }
+        })
       }
     }
 
@@ -501,7 +540,6 @@ connect_spline <- function(segments_summary, processed_df,
 
   filtered_ids
 }
-
 #' Find Path using selected path connection method
 #'
 #' This function identifies a continuous path by connecting trajectory segments using
