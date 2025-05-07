@@ -825,16 +825,12 @@ smooth_individual <- function(ind_df, p = 3, n = 13, smooth_first = FALSE) {
         y_filled = zoo::na.approx(y, na.rm = FALSE)
       )
 
-    lag_amount <- floor((n - 1) / 2)
-
-    filled <- filled |>
+    filled |>
+      dplyr::arrange(time) |>
       dplyr::mutate(
-        x_smooth_raw = signal::sgolayfilt(x_filled, p = p, n = n),
-        y_smooth_raw = signal::sgolayfilt(y_filled, p = p, n = n),
-        x_smooth = dplyr::lead(x_smooth_raw, lag_amount),
-        y_smooth = dplyr::lead(y_smooth_raw, lag_amount)
+        x_smooth = signal::sgolayfilt(x_filled, p = p, n = n),
+        y_smooth = signal::sgolayfilt(y_filled, p = p, n = n)
       )
-
   }
 }
 
