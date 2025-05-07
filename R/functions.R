@@ -795,7 +795,7 @@ detect_jumps_MAD <- function(df) {
 #' @param p Polynomial order for Savitzky-Golay smoothing (default is 3)
 #' @param n Filter length for Savitzky-Golay smoothing (must be odd, default is 13)
 #' @param smooth_first Logical indicating whether to smooth before NA filling (default is TRUE)
-#'                    If FALSE, NA values are filled first, then smoothing is applied
+#'                    If FALSE, NA values are  <-  first, then smoothing is applied
 #'
 #' @return Data frame with additional columns for smoothed x and y coordinates
 smooth_individual <- function(ind_df, p = 3, n = 13, smooth_first = FALSE) {
@@ -825,11 +825,16 @@ smooth_individual <- function(ind_df, p = 3, n = 13, smooth_first = FALSE) {
         y_filled = zoo::na.approx(y, na.rm = FALSE)
       )
 
-    filled |>
+    lag_amount <- floor((n - 1) / 2)
+
+    filled <- filled |>
       dplyr::mutate(
-        x_smooth = signal::sgolayfilt(x_filled, p = p, n = n),
-        y_smooth = signal::sgolayfilt(y_filled, p = p, n = n)
+        x_smooth_raw = signal::sgolayfilt(x_filled, p = p, n = n),
+        y_smooth_raw = signal::sgolayfilt(y_filled, p = p, n = n),
+        x_smooth = dplyr::lead(x_smooth_raw, lag_amount),
+        y_smooth = dplyr::lead(y_smooth_raw, lag_amount)
       )
+
   }
 }
 
