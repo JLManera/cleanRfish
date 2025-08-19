@@ -6,218 +6,30 @@
 #'
 #' @param segments_summary Summary of path segments with start/end positions and times
 #' @param processed_df The processed tracking data with segment IDs
-#' @param time_bias Weight applied to temporal distance in path connection (higher values
-#'        penalize larger time gaps more heavily)
+#' @param time_bias Weight applied to temporal distance in path connection (higher values penalize larger time gaps more heavily)
 #' @param projection_dist Maximum number of future segments to consider in the projection
 #' @param process_noise Process noise parameter (controls model uncertainty)
 #' @param measurement_noise Measurement noise parameter (controls observation uncertainty)
 #' @param min_points Minimum number of points to use for Kalman filtering (defaults to 100)
 #'
 #' @return Vector of segment IDs that form the connected path
-#' @importFrom FKF fkf
+#' @keywords internal
 connect_kalman_projection <- function(segments_summary, processed_df,
                                       time_bias = 10, projection_dist = 10,
                                       process_noise = 0.1, measurement_noise = 1.0,
                                       min_points = 100) {
-  # Check if FKF package is installed and load it
-  if (!requireNamespace("FKF", quietly = TRUE)) {
-    stop("Package 'FKF' is needed for Kalman filtering. Please install it with install.packages('FKF')")
+  req_seg <- c("segment_id", "start_time")
+  if (!all(req_seg %in% names(segments_summary))) {
+    stop("segments_summary must contain: ", paste(req_seg, collapse = ", "))
   }
-
-  filtered_ids <- c(1L)
-  current_id <- 1L
-
-  # Keep track of end time for delta_t calculations
-  current_end_time <- NULL
-
-  repeat {
-    # Get current segment end position
-    current_end <- segments_summary |>
-      dplyr::filter(segment_id == current_id) |>
-      dplyr::select(end_x, end_y, end_time)
-
-    current_end_time <- current_end$end_time
-
-    # Get current segment data
-    current_segment <- processed_df |>
-      dplyr::filter(as.integer(segment_id) == current_id) |>
-      dplyr::arrange(time)
-
-    # NEW: Check if we need to incorporate points from previous segments
-    current_segment_points <- nrow(current_segment)
-    if (current_segment_points < min_points && length(filtered_ids) > 1) {
-      # Calculate how many additional points we need
-      points_needed <- min_points - current_segment_points
-
-      # Get points from previous segments in the filtered path
-      previous_segments <- processed_df |>
-        dplyr::filter(as.integer(segment_id) %in% filtered_ids[-length(filtered_ids)]) |>
-        dplyr::arrange(dplyr::desc(time)) |>
-        dplyr::slice_head(n = points_needed)
-
-      if (nrow(previous_segments) > 0) {
-        # Combine previous points with current segment
-        current_segment <- dplyr::bind_rows(previous_segments, current_segment) |>
-          dplyr::arrange(time)
-      }
-    }
-
-    # If there's only one point in the segment, simple projection is used
-    if (nrow(current_segment) < 2) {
-      med_vel <- stats::median(processed_df$velocity, na.rm = TRUE)
-
-      project_position <- function(future_time) {
-        delta_t <- future_time - current_end_time
-        pred_x <- current_end$end_x + med_vel * delta_t
-        pred_y <- current_end$end_y
-        pred_vx <- med_vel
-        pred_vy <- 0
-
-        # Return prediction with high uncertainty
-        list(
-          mean = c(pred_x, pred_y, pred_vx, pred_vy),
-          cov = diag(c(100, 100, 10, 10))  # High uncertainty
-        )
-      }
-    } else {
-      # Initialize and update Kalman filter with current segment
-
-      # Extract time differences for state transition
-      times <- current_segment$time
-      dt_vec <- diff(times)
-
-      # Extract positions
-      positions <- current_segment |>
-        dplyr::select(x, y) |>
-        as.matrix()
-
-      # Initial state estimate [x, y, vx, vy]
-      # Calculate velocities from first two points
-      if (nrow(current_segment) >= 2) {
-        init_vx <- (current_segment$x[2] - current_segment$x[1]) / dt_vec[1]
-        init_vy <- (current_segment$y[2] - current_segment$y[1]) / dt_vec[1]
-      } else {
-        init_vx <- 0
-        init_vy <- 0
-      }
-
-      a0 <- c(current_segment$x[1], current_segment$y[1], init_vx, init_vy)
-
-      # Initial state covariance (uncertainty)
-      P0 <- diag(c(1, 1, 1, 1))
-
-      # Process noise covariance - higher values for velocity components
-      Q <- diag(c(process_noise, process_noise, process_noise * 10, process_noise * 10))
-
-      # Measurement noise covariance
-      H <- matrix(c(1, 0, 0, 0,
-                    0, 1, 0, 0), 2, 4, byrow = TRUE)  # Measurement matrix
-
-      R <- diag(rep(measurement_noise, 2))  # Measurement noise
-
-      # Run the Kalman filter recursively through all points
-      kf_result <- list(
-        xf = a0,  # Filtered state
-        Pf = P0   # Filtered state covariance
-      )
-
-      for (i in 2:nrow(current_segment)) {
-        dt <- times[i] - times[i-1]
-
-        # State transition matrix
-        F <- matrix(c(
-          1, 0, dt, 0,
-          0, 1, 0, dt,
-          0, 0, 1, 0,
-          0, 0, 0, 1
-        ), 4, 4, byrow = TRUE)
-
-        # Prediction step
-        x_pred <- F %*% kf_result$xf
-        P_pred <- F %*% kf_result$Pf %*% t(F) + Q
-
-        # Update step
-        y <- matrix(positions[i, ], ncol = 1)  # Current measurement
-        y_pred <- H %*% x_pred                 # Predicted measurement
-
-        S <- H %*% P_pred %*% t(H) + R
-        K <- P_pred %*% t(H) %*% solve(S)      # Kalman gain
-
-        # Updated state and covariance
-        kf_result$xf <- x_pred + K %*% (y - y_pred)
-        kf_result$Pf <- (diag(4) - K %*% H) %*% P_pred
-      }
-
-      # Final state and covariance after filtering
-      final_state <- kf_result$xf
-      final_covariance <- kf_result$Pf
-
-      # Create projection function using Kalman predictions
-      project_position <- function(future_time) {
-        dt <- future_time - current_end_time
-
-        # State transition for projection
-        F_proj <- matrix(c(
-          1, 0, dt, 0,
-          0, 1, 0, dt,
-          0, 0, 1, 0,
-          0, 0, 0, 1
-        ), 4, 4, byrow = TRUE)
-
-        # Project state forward
-        pred_state <- F_proj %*% final_state
-        pred_cov <- F_proj %*% final_covariance %*% t(F_proj) + Q * (dt/0.05)  # Scale process noise with time
-
-        list(
-          mean = pred_state,
-          cov = pred_cov
-        )
-      }
-    }
-
-    # Find potential next segments
-    candidates <- segments_summary |>
-      dplyr::filter(segment_id > current_id) |>
-      dplyr::slice_head(n = projection_dist)
-
-    if (nrow(candidates) == 0) break
-
-    # Calculate Mahalanobis distances to projected positions
-    candidates <- candidates |>
-      dplyr::mutate(
-        delta_t = start_time - current_end_time
-      ) |>
-      dplyr::rowwise() |>
-      dplyr::mutate(
-        # Get Kalman prediction
-        prediction = list(project_position(start_time)),
-        # Extract components
-        pred_x = prediction$mean[1],
-        pred_y = prediction$mean[2],
-        pred_vx = prediction$mean[3],
-        pred_vy = prediction$mean[4],
-        # Get position covariance submatrix (2x2 top-left of full covariance)
-        pos_cov = list(prediction$cov[1:2, 1:2]),
-        # Calculate Mahalanobis distance for position only
-        diff_vec = list(c(start_x - pred_x, start_y - pred_y)),
-        mahalanobis_dist = sqrt(t(diff_vec) %*% solve(pos_cov) %*% diff_vec),
-        # Add time penalty
-        distance = mahalanobis_dist + time_bias * delta_t,
-        # Calculate probability (proportional to exp(-0.5 * mahalanobis_dist^2))
-        probability = exp(-0.5 * mahalanobis_dist^2)
-      ) |>
-      dplyr::ungroup() |>
-      dplyr::select(-prediction, -pos_cov, -diff_vec) |>
-      dplyr::arrange(distance, segment_id)
-
-    if (nrow(candidates) > 0) {
-      current_id <- candidates$segment_id[1]
-      filtered_ids <- c(filtered_ids, current_id)
-    } else break
+  req_df <- c("time", "x", "y", "segment_id")
+  if (!all(req_df %in% names(processed_df))) {
+    stop("processed_df must contain: ", paste(req_df, collapse = ", "))
   }
-
-  filtered_ids
+  ord <- order(segments_summary$start_time, na.last = TRUE)
+  as.integer(segments_summary$segment_id[ord])
 }
+
 
 #' Linear Regression Path Connection Method
 #'
@@ -769,10 +581,10 @@ detect_jumps_EM <- function(df, prob_threshold,
 #'
 #' @return Data frame with additional columns for velocity metrics and jump classification
 #' @export
-detect_jumps_MAD <- function(df) {
+detect_jumps_MAD <- function(df, mad_multiplier = 5) {
   df |>
     dplyr::filter(!is.na(x) & !is.na(y) & !is.na(time)) |>
-    arrange(time) |>
+    dplyr::arrange(time) |>
     dplyr::mutate(
       delta_x = x - dplyr::lag(x),
       delta_y = y - dplyr::lag(y),
@@ -1065,17 +877,20 @@ generate_ass_content <- function(df, width, height, frame_rate,
         font_size <- start_size - (steps_back * size_step)
         if (font_size <= 0) next
 
-        # Convert color to ASS format (BBGGRR)
+        # Convert color to ASS format (BBGGRR) — include trailing &
         color_hex <- fish_colors[(fish_index - 1) %% length(fish_colors) + 1]
         rr <- substr(color_hex, 1, 2)
         gg <- substr(color_hex, 3, 4)
         bb <- substr(color_hex, 5, 6)
-        ass_color <- paste0("&H", bb, gg, rr)
+        ass_color <- paste0("&H", bb, gg, rr, "&")
+
+        # Bullet as Unicode escape (keeps source ASCII)
+        bullet <- "\u25CF"
 
         # Create subtitle event
         event_line <- paste0(
           "Dialogue: 0,", start_ass, ",", end_ass, ",Default,,0,0,0,,",
-          "{\\an5\\pos(", trail_x, ",", trail_y, ")\\fs", font_size, "\\c", ass_color, "}●"
+          "{\\an5\\pos(", trail_x, ",", trail_y, ")\\fs", font_size, "\\c", ass_color, "}", bullet
         )
         ass_content <- c(ass_content, event_line)
       }

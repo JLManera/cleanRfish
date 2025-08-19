@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: If you use this package, please cite it.
+title: cleanRfish
+authors:
+  - family-names: Manera
+    given-names: Jack Lewis
+version: 0.1.0
+date-released: 2025-08-19
+license: GPL-3.0-only
+repository-code: https://github.com/JLManera/cleanRfish

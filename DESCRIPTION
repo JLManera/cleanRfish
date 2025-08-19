@@ -3,29 +3,33 @@ Type: Package
 Title: Trajectory Cleaning and Smoothing for Movement Data
 Version: 0.1.0
 Authors@R: c(
-    person(
-      "Jack", "Manera",
-      email = "jack.manera@monash.edu",
-      role = c("aut", "cre")
-    )
-  )
-Description: Provides robust methods for processing trajectory data with discontinuous 
-    movement paths. Implements velocity-based anomaly detection and Savitzky-Golay 
-    smoothing with missing value handling. Features include
-    - Discontinuity removal using Median Absolute Deviation (MAD)
-    - Path segmentation with velocity thresholding
-    - Adaptive Savitzky-Golay filtering with interpolation
-    - Temporal alignment preservation
-License: What license is it under?
+  person("Jack", "L. Manera", email = "Jack.Manera@monash.edu", role = c("aut","cre"),
+         comment = c(ORCID = "0009-0003-7947-6473")))
+Description: Tools to identify discontinuities in two-dimensional animal
+    trajectories and to smooth positions while preserving temporal alignment.
+    Includes robust velocity-based outlier detection and Savitzky-Golay
+    smoothing, plus helpers for visual overlays on videos.
+License: GPL-3
+URL: https://github.com/JLManera/cleanRfish, https://jlmanera.github.io/cleanRfish
+BugReports: https://github.com/JLManera/cleanRfish/issues
 Encoding: UTF-8
-LazyData: true
-Imports: 
-  dplyr (>= 1.0.0),
-  tidyr (>= 1.2.0),
-  stats,
-  signal (>= 0.7.7),
-  zoo (>= 1.8.10),
-  mixtools,
-  FKF,
-  KFAS
+Depends: R (>= 4.1)
+Imports:
+    dplyr,
+    stats,
+    signal,
+    zoo,
+    data.table,
+    purrr,
+    mgcv,
+    mixtools
+Suggests:
+    FKF,
+    KFAS,
+    testthat (>= 3.0.0),
+    knitr,
+    rmarkdown,
+    ggplot2,
+    tidyr
+Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.2

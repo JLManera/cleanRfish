@@ -2,29 +2,20 @@
 % Please edit documentation in R/functions.R
 \name{smooth_path}
 \alias{smooth_path}
-\title{Smooth Path Coordinates with Savitzky-Golay Filter}
+\title{Smooth path after finding it}
 \usage{
-smooth_path(path_df, na.fill = TRUE, p = 3, n = 13)
+smooth_path(df, p = 3, n = 13)
 }
 \arguments{
-\item{path_df}{Output dataframe from find_path() containing processed coordinates}
+\item{df}{Data frame containing tracking data with identified paths}
 
-\item{na.fill}{Logical indicating whether to interpolate missing values before smoothing
-(default = TRUE)}
+\item{p}{Polynomial order for Savitzky-Golay smoothing (default is 3)}
 
-\item{p}{Polynomial order for Savitzky-Golay filter (must be < n)}
-
-\item{n}{Window size (number of points) for Savitzky-Golay filter (must be odd)}
+\item{n}{Filter length for Savitzky-Golay smoothing (must be odd, default is 13)}
 }
 \value{
-Smoothed dataframe matching original structure with columns:
-  - time: Original timestamps
-  - original_x: Preserved original x-coordinates
-  - original_y: Preserved original y-coordinates
-  - x: Smoothed x-coordinates
-  - y: Smoothed y-coordinates
+Data frame with additional columns for smoothed x and y coordinates
 }
 \description{
-Applies Savitzky-Golay smoothing to path coordinates while handling missing values
-through linear interpolation. Maintains original data structure and temporal alignment.
+This function applies Savitzky-Golay filtering to smooth all identified paths.
 }

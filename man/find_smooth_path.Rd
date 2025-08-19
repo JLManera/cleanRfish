@@ -2,22 +2,45 @@
 % Please edit documentation in R/functions.R
 \name{find_smooth_path}
 \alias{find_smooth_path}
-\title{Combined Path Processing Pipeline}
+\title{Complete Processing Pipeline with Selected Connection Method}
 \usage{
-find_smooth_path(df, na.fill = TRUE, p = 3, n = 13)
+find_smooth_path(
+  df,
+  method = c("EM", "MAD"),
+  connection_method = c("kalman", "linear", "spline"),
+  p = 3,
+  n = 13,
+  time_bias = 10,
+  process_noise = 0.1,
+  measurement_noise = 1,
+  min_points = 100
+)
 }
 \arguments{
-\item{df}{Input dataframe with raw trajectory data}
+\item{df}{Data frame containing tracking data with time, x, and y coordinates}
 
-\item{na.fill}{Logical passed to smooth_path() for NA handling}
+\item{method}{Method for jump detection: either "EM" (Expectation-Maximization) or "MAD" (Median Absolute Deviation)}
 
-\item{p}{Polynomial order for Savitzky-Golay filter (must be < n)}
+\item{connection_method}{Method for connecting path segments: "kalman" (Kalman filtering),
+"linear" (Linear regression), or "spline" (Spline interpolation)}
 
-\item{n}{Window size (number of points) for Savitzky-Golay filter (must be odd)}
+\item{p}{Polynomial order for Savitzky-Golay smoothing (default is 3)}
+
+\item{n}{Filter length for Savitzky-Golay smoothing (must be odd, default is 13)}
+
+\item{time_bias}{Weight applied to temporal distance in path connection}
+
+\item{process_noise}{Process noise parameter for Kalman filter (controls model uncertainty)}
+
+\item{measurement_noise}{Measurement noise parameter for Kalman filter (controls observation uncertainty)}
+
+\item{min_points}{Minimum number of points to use for the selected connection method}
 }
 \value{
-Fully processed dataframe with smoothed coordinates
+Data frame with identified and smoothed path
 }
 \description{
-Wrapper function that sequentially applies path identification and smoothing.
+This function combines path finding and smoothing into a single pipeline.
+It first identifies a continuous path using jump detection and the selected connection method,
+then applies Savitzky-Golay smoothing to the resulting trajectory.
 }

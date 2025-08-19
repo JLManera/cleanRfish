@@ -2,26 +2,51 @@
 % Please edit documentation in R/functions.R
 \name{find_path}
 \alias{find_path}
-\title{Identify Connected Path Segments}
+\title{Find Path using selected path connection method}
 \usage{
-find_path(df)
+find_path(
+  df,
+  method = c("EM", "MAD"),
+  connection_method = c("kalman", "linear", "spline"),
+  time_bias = 10,
+  report_jumps = TRUE,
+  include_segment_id = TRUE,
+  prob_threshold = 0.95,
+  projection_dist = 10,
+  process_noise = 0.1,
+  measurement_noise = 1,
+  min_points = 100
+)
 }
 \arguments{
-\item{df}{Dataframe containing trajectory data with required columns:
-- x: X-coordinate values
-- y: Y-coordinate values
-- time: Timestamp values (numeric or POSIXct)}
+\item{df}{Data frame containing tracking data with time, x, and y coordinates}
+
+\item{method}{Method for jump detection: either "EM" (Expectation-Maximization) or "MAD" (Median Absolute Deviation)}
+
+\item{connection_method}{Method for connecting path segments: "kalman" (Kalman filtering),
+"linear" (Linear regression), or "spline" (Spline interpolation)}
+
+\item{time_bias}{Weight applied to temporal distance in path connection (higher values
+penalize larger time gaps more heavily)}
+
+\item{report_jumps}{Logical; if TRUE, includes jump detection results in output}
+
+\item{include_segment_id}{Logical; if TRUE, includes segment identifiers in output}
+
+\item{prob_threshold}{Probability threshold for classifying jumps when using EM method}
+
+\item{projection_dist}{Maximum number of future segments to consider in projection}
+
+\item{process_noise}{Process noise parameter for Kalman filter (controls model uncertainty)}
+
+\item{measurement_noise}{Measurement noise parameter for Kalman filter (controls observation uncertainty)}
+
+\item{min_points}{Minimum number of points to use for the selected connection method}
 }
 \value{
-Dataframe matching input length with columns:
-  - time: Original timestamps
-  - original_x: Preserved original x-coordinates
-  - original_y: Preserved original y-coordinates
-  - x: Processed x-coordinates (NAs at discontinuity points)
-  - y: Processed y-coordinates (NAs at discontinuity points)
+Data frame with identified path
 }
 \description{
-Processes trajectory data to identify continuous path segments by removing jumps caused by
-tracking artifacts or measurement errors. Maintains original dataframe structure with NAs
-where segments are removed to preserve temporal alignment.
+This function identifies a continuous path by connecting trajectory segments using
+the specified connection method.
 }
