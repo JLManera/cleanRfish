@@ -53,7 +53,7 @@ remotes::install_github("JLManera/cleanRfish")
 ```
 
 ## 🐟 Basic Usage
-### **For Zebrafish Tracking Data**
+### **For Fish Tracking Data**
 ```r
 library(cleanRfish)
 
@@ -75,7 +75,6 @@ cleaned_data <- find_smooth_path(
 While this is primarily a research tool, I welcome:
 - **Bug reports** with reproducible examples
 - **Documentation improvements**
-- **Bayesian methods expertise**
 
 ### **Please note:** As a full-time PhD student, I cannot guarantee:
 - **Timely responses to issues**
@@ -85,23 +84,7 @@ While this is primarily a research tool, I welcome:
 ## 📝 License
 GNU GPLv3 - See LICENSE file
 
-## 📍 Roadmap
-```mermaid
-gantt
-    title cleanRfish Development Timeline
-    dateFormat  YYYY-MM
-    section Core Functionality
-    Velocity Filtering       :done, des1, 2025-02, 2025-03
-    Path Reconnection        :done, des2, 2025-02, 2025-03
-    SG Smoothing             :done, des3, 2025-02, 2025-03
-    
-    section Future Goals
-    HMM Implementation      :active, 2025-05, 2025-12
-    Probabilistic Framework  :crit, 2025-04, 2025-06
-```
-
 ## 📨 Contact
 For scientific use inquiries:  
-**jack.manera@monash.edu**  
-Lab Website: **I need a website**  
+**jack.manera@monash.edu**   
 
