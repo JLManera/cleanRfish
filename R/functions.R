@@ -599,6 +599,37 @@ detect_jumps_MAD <- function(df, mad_multiplier = 5) {
     )
 }
 
+
+.sgf_preserve_na <- function(x, p = 3, n = 13) {
+  out <- rep(NA_real_, length(x))
+  if (length(x) == 0) return(out)
+
+  # identify contiguous non-NA runs
+  ok <- !is.na(x)
+  if (!any(ok)) return(out)
+
+  r <- rle(ok)
+  ends <- cumsum(r$lengths)
+  starts <- c(1, head(ends, -1) + 1)
+
+  for (i in seq_along(r$values)) {
+    if (!r$values[i]) next
+    s <- starts[i]; e <- ends[i]
+    seg <- x[s:e]
+
+    # choose an odd window <= length(seg)
+    n_use <- min(n, length(seg))
+    if (n_use %% 2 == 0) n_use <- n_use - 1
+    if (n_use < 3) {
+      # too short to smooth: just copy segment back (or use a tiny median/mean)
+      out[s:e] <- seg
+    } else {
+      out[s:e] <- signal::sgolayfilt(seg, p = min(p, n_use - 1), n = n_use)
+    }
+  }
+  out
+}
+
 #' Smooth Individual Trajectory
 #'
 #' Applies Savitzky-Golay filtering to smooth individual tracking trajectories.
@@ -612,36 +643,39 @@ detect_jumps_MAD <- function(df, mad_multiplier = 5) {
 #' @return Data frame with additional columns for smoothed x and y coordinates
 smooth_individual <- function(ind_df, p = 3, n = 13, smooth_first = FALSE) {
   if (smooth_first) {
-    # Original approach: smooth first, then fill NAs
-    smoothed <- ind_df |>
-      dplyr::filter(!is.na(x) & !is.na(y)) |>
-      dplyr::arrange(time) |>
+    # smooth non-NA then merge back, then respect NA edges
+    smoothed <- ind_df %>%
+      dplyr::filter(!is.na(x) & !is.na(y)) %>%
+      dplyr::arrange(time) %>%
       dplyr::mutate(
-        x_smooth = signal::sgolayfilt(x, p = p, n = n),
-        y_smooth = signal::sgolayfilt(y, p = p, n = n)
-      ) |>
-      dplyr::select(time, x_smooth, y_smooth)
+        x_smooth_tmp = signal::sgolayfilt(x, p = p, n = n),
+        y_smooth_tmp = signal::sgolayfilt(y, p = p, n = n)
+      ) %>%
+      dplyr::select(time, x_smooth_tmp, y_smooth_tmp)
 
-    ind_df |>
-      dplyr::left_join(smoothed, by = "time") |>
+    ind_df %>%
+      dplyr::left_join(smoothed, by = "time") %>%
       dplyr::mutate(
-        x_smooth = zoo::na.approx(x_smooth, na.rm = FALSE),
-        y_smooth = zoo::na.approx(y_smooth, na.rm = FALSE)
-      )
+        # keep original NA structure and only interpolate internal gaps,
+        # then re-run through NA-preserving SG to avoid edge drift
+        x_smooth = .sgf_preserve_na(zoo::na.approx(x_smooth_tmp, na.rm = FALSE), p, n),
+        y_smooth = .sgf_preserve_na(zoo::na.approx(y_smooth_tmp, na.rm = FALSE), p, n)
+      ) %>%
+      dplyr::select(-x_smooth_tmp, -y_smooth_tmp)
   } else {
-    # Alternative approach: fill NAs first, then smooth
-    filled <- ind_df |>
-      dplyr::arrange(time) |>
+    # fill internal gaps (keep leading/trailing NA), then SG per contiguous run
+    filled <- ind_df %>%
+      dplyr::arrange(time) %>%
       dplyr::mutate(
         x_filled = zoo::na.approx(x, na.rm = FALSE),
         y_filled = zoo::na.approx(y, na.rm = FALSE)
       )
 
-    filled |>
-      dplyr::arrange(time) |>
+    filled %>%
+      dplyr::arrange(time) %>%
       dplyr::mutate(
-        x_smooth = signal::sgolayfilt(x_filled, p = p, n = n),
-        y_smooth = signal::sgolayfilt(y_filled, p = p, n = n)
+        x_smooth = .sgf_preserve_na(x_filled, p, n),
+        y_smooth = .sgf_preserve_na(y_filled, p, n)
       )
   }
 }
@@ -660,35 +694,37 @@ smooth_individual <- function(ind_df, p = 3, n = 13, smooth_first = FALSE) {
 smooth_path <- function(df, p = 3, n = 13) {
   ids <- get_individual_ids(df)
   if (length(ids) == 0) return(df)
-
   smoothed <- lapply(ids, function(id) {
     x_col <- paste0("x", id)
     y_col <- paste0("y", id)
-
     if (!(x_col %in% names(df) && y_col %in% names(df))) return(NULL)
 
-    ind_df <- df |>
+    ind_df <- df %>%
       dplyr::select(time, x = !!x_col, y = !!y_col)
 
     smoothed_ind <- smooth_individual(ind_df, p = p, n = n)
 
-    smoothed_ind |>
+    # --- NEW: make intermediate names unique per ID if they exist
+    if ("x_filled" %in% names(smoothed_ind)) {
+      smoothed_ind <- dplyr::rename(smoothed_ind, !!paste0("x_filled", id) := x_filled)
+    }
+    if ("y_filled" %in% names(smoothed_ind)) {
+      smoothed_ind <- dplyr::rename(smoothed_ind, !!paste0("y_filled", id) := y_filled)
+    }
+
+    # Rename smoothed outputs to include ID (direction: new := old)
+    smoothed_ind %>%
       dplyr::rename(
         !!paste0("x_smooth", id) := x_smooth,
         !!paste0("y_smooth", id) := y_smooth
-      ) |>
+      ) %>%
       dplyr::select(-x, -y)
   })
-
   smoothed <- smoothed[!sapply(smoothed, is.null)]
-
   if (length(smoothed) == 0) return(df)
-
-  final_smoothed <- purrr::reduce(smoothed, function(a, b) {
+  purrr::reduce(smoothed, function(a, b) {
     dplyr::full_join(a, b, by = "time")
   }, .init = df)
-
-  final_smoothed
 }
 
 #' Helper function to detect individual IDs from column names
