@@ -1,10 +1,26 @@
 cff-version: 1.2.0
 message: If you use this package, please cite it.
-title: cleanRfish
+title: "cleanRfish: Uncertainty-Weighted Trajectory Reconstruction for Animal Tracking"
 authors:
   - family-names: Manera
     given-names: Jack Lewis
-version: 0.1.0
-date-released: 2025-08-19
+    email: Jack.Manera@monash.edu
+    orcid: https://orcid.org/0009-0003-7947-6473
+version: 2.0.0
+date-released: 2025-11-19
 license: GPL-3.0-only
 repository-code: https://github.com/JLManera/cleanRfish
+keywords:
+  - animal-tracking
+  - trajectory-reconstruction
+  - uncertainty-modelling
+  - behavioural-analysis
+  - ornstein-uhlenbeck
+  - gam
+  - video-tracking
+abstract: >-
+  Bidirectional spline-based trajectory reconstruction with Ornstein-Uhlenbeck 
+  uncertainty modelling. Reconstructs fragmented animal tracking trajectories using 
+  uncertainty-weighted likelihood ranking to intelligently link trajectory segments 
+  broken by occlusions, identity swaps, or tracking failures.
+

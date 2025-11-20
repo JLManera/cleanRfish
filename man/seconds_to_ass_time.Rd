@@ -2,16 +2,16 @@
 % Please edit documentation in R/functions.R
 \name{seconds_to_ass_time}
 \alias{seconds_to_ass_time}
-\title{Convert seconds to ASS time format}
+\title{Convert Seconds to ASS Time Format}
 \usage{
 seconds_to_ass_time(t)
 }
 \arguments{
-\item{t}{Numeric value representing time in seconds}
+\item{t}{Time in seconds}
 }
 \value{
-Character string in ASS time format (H:MM:SS.FF)
+Character string in ASS format (H:MM:SS.CS)
 }
 \description{
-Convert seconds to ASS time format
+Convert Seconds to ASS Time Format
 }

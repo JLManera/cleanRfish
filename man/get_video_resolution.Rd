@@ -2,16 +2,16 @@
 % Please edit documentation in R/functions.R
 \name{get_video_resolution}
 \alias{get_video_resolution}
-\title{Get video resolution using ffprobe}
+\title{Get Video Resolution Using ffprobe}
 \usage{
 get_video_resolution(video_path)
 }
 \arguments{
-\item{video_path}{Character string of the video file path}
+\item{video_path}{Path to video file}
 }
 \value{
-List containing width and height of the video
+List with width and height
 }
 \description{
-Get video resolution using ffprobe
+Get Video Resolution Using ffprobe
 }

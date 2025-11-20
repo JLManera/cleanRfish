@@ -1,6 +1,6 @@
 # cleanRfish 🐟📊  
 **Trajectory Cleaning for Animal Tracking Data**  
-*A PhD Student's Tool for Handling Tracking Software Artifacts*
+*A PhD Student's Tool for Handling Tracking Software Errors*
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
@@ -12,39 +12,38 @@
 > **Important Note:** This package is actively used in my PhD research but receives irregular maintenance. While functional for my needs, users should:
 > - Expect delayed responses to issues
 > - Verify results against raw data
-> - Not consider this production-ready software
 
 ## 🔍 Problem Addressed
-Automated video tracking systems (e.g., EthoVision, idtracker.ai) often exhibit "jumping" artifacts where:
-1. Software temporarily locks onto non-target objects
-2. Creates artificial discontinuities in trajectories
-3. Introduces noise in behavioral analyses
+Automated video-based tracking systems (e.g., EthoVision, idtracker.ai) are powerful tools, but they routinely produce systematic, non-random errors that disrupt otherwise continuous animal trajectories. Unlike GPS-based movement ecology—where errors are typically small, independent, and easily removed by smoothing—high-resolution video tracking produces clusters of contiguous errors that cannot be treated as stochastic noise.
 
-### **Example Cases:**
-- Fish temporarily obscured by tank enrichment
-- Rodent briefly hidden in complex maze
-- Insect lost in high-density tracking
+These problems arise because video tracking systems may:
+
+- momentarily assign the focal animal’s identity to another object,
+
+- track a reflection, ripple, shadow, or background artefact,
+
+- lose the focal animal during occlusions or interactions, and then fail to correctly reacquire the individual after it reappears.
+
+The result is that tracking “errors” may look biologically credible, forming long, smooth, and coherent false trajectories. Standard filtering or smoothing cannot distinguish these artefactual segments from genuine movement because the errors are temporally autocorrelated and often span many frames.
+
+In practice, this produces trajectories that are:
+
+- fragmented into many disjoint segments,
+
+- interrupted by identity swaps or missed detections, and
+
+- unusable for behavioural or kinematic analysis unless they can be reliably reconstructed.
+
+cleanRfish addresses this problem by providing a principled method to identify, rank, and reconnect fragmented trajectory segments using uncertainty-aware likelihood models, rather than relying on conventional smoothing. By modelling how positional uncertainty grows over time, predicting feasible future positions, and penalising implausible kinematic transitions, cleanRfish reconstructs trajectories that would otherwise remain broken or misleadingly corrupted.
+
+The goal is to clean the data and differentiate real behaviour from tracking artefacts, ensuring that downstream biological inferences are based on authentic movement rather than software errors. 
+
+That said, it’s worth noting that the need for a package like cleanRfish will hopefully diminish as tracking software continues to improve. Many controlled laboratory systems already achieve excellent accuracy with minimal errors. My intention here is simply to offer a practical tool for situations where tracking is pushed beyond those ideal conditions—such as ecological or multi-individual assays in visually complex environments—where errors are still a routine challenge. I share the hope that future advances in tracking technology will make tools like this increasingly obsolete.
 
 ## 📺 Package Overview
-### **Current Implementation (Heuristic Approach)**
-```r
-find_smooth_path(raw_data) %>%
-  analyze_behavior()
-```
-Filters discontinuities using:
-- **Velocity Thresholding** (MAD-robust statistics)
-- **Path Segmentation**
-- **Savitzky-Golay Smoothing**
+*cleanRfish* provides a comprehensive pipeline for removing errors from animal tracking trajectories. 
 
-### **Future Directions (Probabilistic Framework)**
-```r
-# Goal for v2.0
-bayesian_path_cleaner(raw_data, species_movement_model) %>%
-  probabilistic_analysis()
-```
-Planned features:
-- **Hidden Markov Models** for state detection
-- **Uncertainty quantification**
+*cleanRfish* reconstructs animal tracking trajectories using bidirectional, uncertainty weighted spline propagation. The algorithm first fragments the track by detecting abnormal changes in the animal’s velocity and heading direction. These flags partition the track into segments that represent periods of both contiguous tracking of an object (either the focal animal or a non-target object) and stochastic errors. Large temporal gaps in the tracking data (exceeding the user specified search window) are then identified and used to group segments into isolated tracking groups, ensuring the algorithm does not link across biologically implausible time intervals. Within each group, a reliable ‘ground truth’ segment is selected, and from this anchor point the algorithm propagates both forwards and backwards in time using multivariate GAM splines to predict trajectory continuations, ranking candidate segments by log likelihood scores derived from Ornstein–Uhlenbeck uncertainty modelling. This uncertainty model is constructed through bootstrap sampling of observation pairs at varying time separations, quantifying how positional uncertainty grows with temporal gap, and when taken together with the spline predicted trajectory is used to select the next most probable segment. This procedure is iterated until the full path is reconstructed and segments deemed unlikely are excluded, subject to biological plausibility constraints (velocity limits informed by the data). Reconstructed trajectories can optionally undergo temporal smoothing via Savitzky–Golay or moving average filtering after linear interpolation of remaining gaps. For multi individual datasets, the complete pipeline is run independently for each individual and the results are combined into a single data frame. Visualisation tools include diagnostic plots showing spline fits with uncertainty envelopes and candidate rankings, spatial 2D trajectory plots, and video overlay generation using ffmpeg to burn colour coded tracks onto the source video, while an interactive Shiny gadget allows chronological browsing of diagnostic plots for reconstruction quality assessment.
 
 ## 🛠️ Installation
 ```r
@@ -57,19 +56,170 @@ remotes::install_github("JLManera/cleanRfish")
 ```r
 library(cleanRfish)
 
-# Process raw tracking output
-cleaned_data <- find_smooth_path(
-  raw_df,
-  na.fill = TRUE,  # Interpolate gaps
-  p = 3,           # Cubic polynomial for SG filter
-  n = 13           # 13-point smoothing window
+# Load tracking data (expected format: time, x1, y1, x2, y2, ...)
+df_multi <- read.csv("trajectories.csv")
+
+# Process all individuals with uncertainty-weighted reconstruction
+results <- process_multi_individual(
+  df_raw = df_multi,
+  window = 20,                        # 20-second search window
+  min_candidates = 8,                 # Minimum candidates segments to consider
+  speed_threshold_quantile = 0.999,   # Speed feasibility threshold (99.9%)
+  smooth_method = "savitzky_golay",   # Smoothing filter
+  diagnostic_plots = FALSE            # Set TRUE for visualization
+)
+
+# Extract reconstructed tracks
+all_individuals <- results$tracks
+
+# View structure
+head(all_individuals)
+# Columns: time, x_original, y_original, x_reconstructed, y_reconstructed, 
+#          x_smooth, y_smooth, individual_number
+```
+
+### Visualise Results
+
+```r
+library(ggplot2)
+
+# Plot composite trajectory for Individual 1
+ggplot() +
+  # Original fragmented data
+  geom_point(
+    data = all_individuals |> filter(individual_number == 1),
+    aes(x = time, y = y_original + x_original),
+    alpha = 0.4, colour = "black", size = 0.5
+  ) +
+  # Reconstructed continuous trajectory
+  geom_path(
+    data = all_individuals |> 
+      filter(individual_number == 1, !is.na(x_reconstructed)),
+    aes(x = time, y = x_reconstructed + y_reconstructed),
+    colour = "purple", linewidth = 0.6
+  ) +
+  labs(
+    title = "Trajectory Reconstruction - Individual 1",
+    x = "Time (seconds)",
+    y = "Composite Position (X + Y)"
+  ) +
+  theme_classic()
+```
+
+### Interactive Diagnostic Plots
+
+```r
+# Generate diagnostic plots during processing
+results <- process_multi_individual(
+  df_raw = df_multi,
+  diagnostic_plots = TRUE
+)
+
+# Launch interactive viewer
+check_spline_fits(results, individual_number = 1)
+# Use arrow keys (← →) to navigate through reconstruction steps
+```
+
+### Create Video Overlay
+
+```r
+# Overlay all individuals simultaneously on original video
+overlay_track_on_video(
+  tracks_df = all_individuals,
+  video_path = "path/to/video.mp4",
+  output_name = "reconstructed_overlay.mp4",
+  use_smoothed = TRUE
 )
 ```
 
+## Core Functions
+
+### Trajectory Processing
+
+- `detect_jumps()` - Identify tracking discontinuities using velocity/direction metrics
+- `assign_segments()` - Convert jump flags to segment IDs
+- `find_ground_truth_segment()` - Identify most reliable anchor segment
+- `identify_isolated_groups()` - Partition segments by large temporal gaps
+
+### Uncertainty & Ranking
+
+- `compute_uncertainty_model()` - Fit Ornstein-Uhlenbeck uncertainty model to the data to see how uncertainty in position changes with time
+- `get_candidate_segments()` - Find segments within search window (adaptive)
+- `rank_candidates_uncertainty()` - Score candidates using likelihood + uncertainty
+- `calculate_log_likelihood()` - Compute match quality score
+
+### Reconstruction
+
+- `propagate_forward_uncertainty()` - Link segments forward from ground truth
+- `propagate_backwards_uncertainty()` - Link segments backward from ground truth
+- `smooth_track()` - Apply Savitzky-Golay or moving average smoothing
+- `process_multi_individual()` - Complete pipeline for multi-individual data
+
+### Visualization
+
+- `check_spline_fits()` - Interactive Shiny gadget for diagnostic plots
+- `overlay_track_on_video()` - Create video with tracks overlaid
+- `get_video_resolution()` - Extract video properties
+- `seconds_to_ass_time()` - Convert time format for subtitles
+
+## Parameter Tuning
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `window` | 20 | Search window size (seconds). Should match typical occlusion duration |
+| `min_candidates` | 5 | Minimum segments to consider as the next potential candidate segment of the track. Window auto-expands if needed |
+| `speed_threshold_quantile` | 0.999 | Speed feasibility quantile. Higher = more permissive |
+| `min_movement` | 50 | Minimum total movement for ground truth selection |
+| `smooth_method` | "savitzky_golay" | Smoothing filter: "savitzky_golay" or "moving_average" |
+
+## Data Format
+
+### Input Format
+
+CSV file with columns:
+- `time`: Timestamp (numeric, in seconds)
+- `x1, y1, x2, y2, ..., xN, yN`: Coordinates for N individuals
+
+```
+time,x1,y1,x2,y2,x3,y3
+0.00,245.3,189.7,512.1,334.2,678.9,201.4
+0.04,246.1,190.2,513.4,335.1,679.3,202.1
+...
+```
+
+### Output Format
+
+Data frame with columns per individual:
+- `time`: Timestamp
+- `x_original, y_original`: Original raw coordinates
+- `x_reconstructed, y_reconstructed`: Gap-filled coordinates
+- `x_smooth, y_smooth`: Smoothed final coordinates
+- `individual_number`: Individual identifier (1 to N)
+
+
 ## 📈 Validation
-### **Tested On:**
-- Guppies (*Poecilia reticulata*) 2D tracking
-- Artificial datasets with controlled jumps
+### **Tested Systems:**
+
+- **Species**: Guppies (*Poecilia reticulata*), Eastern mosquitofish (*Gambusia holbrooki*), but is general applicabile to 2D tracking of any animal
+- **Tracking software**: idtrackerai, EthoVision XT
+- **Data scale**: Up to 500K points per individual, however more is possible it just takes a long time. 
+
+## Requirements
+
+- R >= 4.1
+- Required packages: dplyr, mgcv, signal, zoo, ggplot2
+- Optional: plotly, shiny, miniUI (for interactive features)
+- ffmpeg (for video overlay functionality)
+
+## Citation
+
+If you use cleanRfish in your research, please cite:
+
+```
+Manera, J.L. (2025). cleanRfish: Uncertainty-Weighted Trajectory 
+Reconstruction for Animal Tracking. R package version 2.0.0. 
+https://github.com/JLManera/cleanRfish
+```
 
 ## 🌱 Contributing
 While this is primarily a research tool, I welcome:
@@ -82,9 +232,8 @@ While this is primarily a research tool, I welcome:
 - **Compatibility with other tracking formats**
 
 ## 📝 License
-GNU GPLv3 - See LICENSE file
+GNU General Public License v3.0 - See LICENSE file
 
 ## 📨 Contact
 For scientific use inquiries:  
 **jack.manera@monash.edu**   
-

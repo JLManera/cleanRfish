@@ -1,14 +1,16 @@
 Package: cleanRfish
 Type: Package
-Title: Trajectory Cleaning and Smoothing for Movement Data
-Version: 0.1.0
+Title: Uncertainty-Weighted Trajectory Reconstruction for Animal Tracking
+Version: 2.0.0
 Authors@R: c(
   person("Jack", "L. Manera", email = "Jack.Manera@monash.edu", role = c("aut","cre"),
          comment = c(ORCID = "0009-0003-7947-6473")))
-Description: Tools to identify discontinuities in two-dimensional animal
-    trajectories and to smooth positions while preserving temporal alignment.
-    Includes robust velocity-based outlier detection and Savitzky-Golay
-    smoothing, plus helpers for visual overlays on videos.
+Description: Bidirectional spline-based trajectory reconstruction with Ornstein-Uhlenbeck 
+    uncertainty modelling. Reconstructs fragmented animal tracking trajectories using 
+    uncertainty-weighted likelihood ranking to intelligently link trajectory segments 
+    broken by occlusions, identity swaps, or tracking failures. Features bidirectional 
+    reconstruction, GAM-based prediction, kinematic feasibility filtering, and 
+    multi-individual support with video overlay capabilities.
 License: GPL-3
 URL: https://github.com/JLManera/cleanRfish, https://jlmanera.github.io/cleanRfish
 BugReports: https://github.com/JLManera/cleanRfish/issues
@@ -19,17 +21,17 @@ Imports:
     stats,
     signal,
     zoo,
-    data.table,
-    purrr,
     mgcv,
-    mixtools
+    tibble,
+    ggplot2
 Suggests:
-    FKF,
-    KFAS,
+    ggplot2,
+    plotly,
+    shiny,
+    miniUI,
     testthat (>= 3.0.0),
     knitr,
     rmarkdown,
-    ggplot2,
     tidyr
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.2
+RoxygenNote: 7.3.3
