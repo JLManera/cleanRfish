@@ -1307,7 +1307,7 @@ get_video_resolution <- function(video_path) {
 #' @param tracks_df Data frame with tracking results
 #' @param video_path Path to input video file
 #' @param output_name Output video filename (default: "overlaid.mp4")
-#' @param output_location Optional directory path for output video. If NULL (default), saves to input video directory
+#' @param output_location Optional directory path for output video. 
 #' @param dot_size Size of tracking dots (default: 18)
 #' @param use_smoothed Use smoothed track if available (default: TRUE)
 #' @return Path to output video
@@ -1454,38 +1454,49 @@ overlay_track_on_video <- function(tracks_df, video_path,
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
   )
   
-  # Generate dialogue lines for each track point (all individuals)
-  ass_events <- c()
+  # **OPTIMIZED: Vectorized dialogue generation**
+  cat(sprintf("Generating %d dialogue lines...\n", nrow(track_clean) * 2))
   
-  for (i in 1:nrow(track_clean)) {
-    row <- track_clean[i, ]
-    start_time <- seconds_to_ass_time(row$time)
-    end_time <- seconds_to_ass_time(row$time + 1/video_props$frame_rate)
-    
-    # Get colours for this individual (cycle through palette)
-    ind_bright <- colour_palette_bright[((row$individual_number - 1) %% length(colour_palette_bright)) + 1]
-    ind_dark <- colour_palette_dark[((row$individual_number - 1) %% length(colour_palette_dark)) + 1]
-    
-    # Original track (if exists) - dark colour
-    if (!is.na(row$x_original) && !is.na(row$y_original)) {
-      ass_events <- c(ass_events, sprintf(
-        "Dialogue: 0,%s,%s,Default,,0,0,0,,{\\an5\\pos(%.1f,%.1f)\\fs%d\\c%s}●",
-        start_time, end_time, row$x_original, row$y_original, dot_size, ind_dark
-      ))
-    }
-    
-    # Reconstructed/smoothed track (if exists) - bright colour
-    if (!is.na(row$recon_x) && !is.na(row$recon_y)) {
-      ass_events <- c(ass_events, sprintf(
-        "Dialogue: 0,%s,%s,Default,,0,0,0,,{\\an5\\pos(%.1f,%.1f)\\fs%d\\c%s}●",
-        start_time, end_time, row$recon_x, row$recon_y, dot_size, ind_bright
-      ))
-    }
-  }
+  # Pre-compute all time values
+  frame_duration <- 1 / video_props$frame_rate
+  start_times <- vapply(track_clean$time, seconds_to_ass_time, character(1))
+  end_times <- vapply(track_clean$time + frame_duration, seconds_to_ass_time, character(1))
   
-  # Write ASS file
+  # Pre-compute colours for each individual
+  ind_bright <- colour_palette_bright[((track_clean$individual_number - 1) %% length(colour_palette_bright)) + 1]
+  ind_dark <- colour_palette_dark[((track_clean$individual_number - 1) %% length(colour_palette_dark)) + 1]
+  
+  # Vectorized generation of original track lines
+  original_mask <- !is.na(track_clean$x_original) & !is.na(track_clean$y_original)
+  ass_events_original <- sprintf(
+    "Dialogue: 0,%s,%s,Default,,0,0,0,,{\\an5\\pos(%.1f,%.1f)\\fs%d\\c%s}●",
+    start_times[original_mask],
+    end_times[original_mask],
+    track_clean$x_original[original_mask],
+    track_clean$y_original[original_mask],
+    dot_size,
+    ind_dark[original_mask]
+  )
+  
+  # Vectorized generation of reconstructed track lines
+  recon_mask <- !is.na(track_clean$recon_x) & !is.na(track_clean$recon_y)
+  ass_events_recon <- sprintf(
+    "Dialogue: 0,%s,%s,Default,,0,0,0,,{\\an5\\pos(%.1f,%.1f)\\fs%d\\c%s}●",
+    start_times[recon_mask],
+    end_times[recon_mask],
+    track_clean$recon_x[recon_mask],
+    track_clean$recon_y[recon_mask],
+    dot_size,
+    ind_bright[recon_mask]
+  )
+  
+  # Combine all events
+  ass_events <- c(ass_events_original, ass_events_recon)
+  
+  # Write ASS file (single write operation)
+  cat("Writing ASS file...\n")
   writeLines(c(ass_header, ass_events), ass_path)
-  cat(sprintf("ASS file created: %s\n", ass_path))
+  cat(sprintf("ASS file created: %s (%d lines)\n", ass_path, length(ass_events)))
   
   # Run ffmpeg to overlay subtitles
   cat("Running ffmpeg to create overlaid video...\n")
@@ -1540,11 +1551,17 @@ check_spline_fits <- function(results, individual_number = 1) {
   
   if (identical(individual_number, "all")) {
     all_plots <- unlist(lapply(results$plots, function(ind_plots) {
+      if (is.null(ind_plots)) return(list())
       c(ind_plots$backward, ind_plots$forward)
     }), recursive = FALSE)
     
+    # Filter out NULL plots
+    all_plots <- all_plots[!sapply(all_plots, function(p) {
+      is.null(p) || (is.null(p$diagnostic_plot) && is.null(p$spatial_plot))
+    })]
+    
     if (length(all_plots) == 0) {
-      stop("No plots available")
+      stop("No diagnostic or spatial plots available. Plots may be NULL due to insufficient data for uncertainty modelling.")
     }
     
     plots <- all_plots
@@ -1560,15 +1577,26 @@ check_spline_fits <- function(results, individual_number = 1) {
     }
     
     plots <- c(ind_plots$backward, ind_plots$forward)
+    
+    # Filter out NULL plots
+    plots <- plots[!sapply(plots, function(p) {
+      is.null(p) || (is.null(p$diagnostic_plot) && is.null(p$spatial_plot))
+    })]
+    
+    if (length(plots) == 0) {
+      stop(sprintf("No diagnostic or spatial plots available for individual %d. Plots may be NULL due to insufficient data for uncertainty modelling.", individual_number))
+    }
   }
   
-  stopifnot(length(plots) >= 1)
-  
+  # Sort plots by time, handling NULL diagnostic plots gracefully
   plots <- plots[order(sapply(plots, function(p) {
-    if (!is.null(p$diagnostic_plot)) {
-      min_time <- min(c(p$diagnostic_plot$data[[1]]$time,
-                        p$diagnostic_plot$data[[2]]$time), na.rm = TRUE)
-      return(min_time)
+    if (!is.null(p$diagnostic_plot) && !is.null(p$diagnostic_plot$data) &&
+        length(p$diagnostic_plot$data) >= 2) {
+      tryCatch({
+        min_time <- min(c(p$diagnostic_plot$data[[1]]$time,
+                          p$diagnostic_plot$data[[2]]$time), na.rm = TRUE)
+        return(min_time)
+      }, error = function(e) Inf)
     }
     return(Inf)
   }))]

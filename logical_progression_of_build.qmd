@@ -1,0 +1,1976 @@
+---
+title: "Uncertainty-Weighted Trajectory Reconstruction"
+subtitle: "Bidirectional Spline-Based Segment Linking with Ornstein-Uhlenbeck Uncertainty Modeling"
+author: "Trajectory Analysis Pipeline"
+date: "`r Sys.Date()`"
+format: 
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: false
+    theme: cosmo
+    embed-resources: true
+---
+
+# Overview
+
+This document presents a comprehensive pipeline for reconstructing fragmented animal tracking trajectories. The approach uses **uncertainty-weighted likelihood ranking** to intelligently link trajectory segments that have been broken due to occlusions, identity swaps, or tracking failures.
+
+## Key Features
+
+-   **Bidirectional reconstruction**: Links segments both forward and backward from a ground truth anchor point
+-   **Uncertainty modeling**: Uses Ornstein-Uhlenbeck process to model positional uncertainty growth over time
+-   **GAM-based prediction**: Employs multivariate Generalized Additive Models to predict future/past positions
+-   **Kinematic feasibility**: Filters candidates based on biologically plausible velocity and acceleration
+-   **Multi-individual support**: Processes multiple tracked individuals simultaneously
+-   **Gap-aware**: Handles large tracking gaps and/or occlusions by identifying isolated tracking groups
+
+## Methodology Summary
+
+1.  **Segmentation**: Detect trajectory jumps using combined speed and direction change metrics
+2.  **Ground truth identification**: Find the longest, most reliable contiguous set of tracking points as an anchor
+3.  **Uncertainty quantification**: Bootstrap sampling within segments to empirically measure uncertainty growth
+4.  **Spline projection**: Fit multivariate GAMs to predict positions at candidate segment endpoints
+5.  **Likelihood ranking**: Score candidates based on residual gap penalized by time-dependent uncertainty
+6.  **Iterative linking**: Sequentially add best-ranked segments in both temporal directions
+7.  **Smoothing**: Apply a Simple Moving Average (SMA) or Savitzky-Golay filter to the final reconstructed trajectories.
+
+------------------------------------------------------------------------
+
+# Setup and Dependencies
+
+```{r setup-packages}
+#| message: false
+#| warning: false
+
+# Package Management
+# pacman::p_load ensures packages are installed if missing, then loads them
+# This makes the analysis fully reproducible on any system
+
+pacman::p_load(
+  # Core tidyverse packages
+  tidyverse,      # Data manipulation and visualisation
+  ggplot2,        # Advanced plotting
+  
+  # Statistical modeling
+  mgcv,           # Generalized Additive Models (GAM) for spline fitting
+  
+  # Signal processing and smoothing
+  zoo,            # Time series interpolation
+  signal,         # Savitzky-Golay filtering
+  
+  # Visualisation enhancements
+  patchwork,      # Combining multiple plots
+  plotly,         # Interactive plots
+  
+  # Utility packages
+  readxl,         # Reading Excel files
+  stringr,        # String manipulation
+  circular,       # Circular statistics for directional data
+  
+  install = TRUE, 
+  update = FALSE
+)
+```
+
+------------------------------------------------------------------------
+
+# Core Functions
+
+## 1. Trajectory Segmentation
+
+### 1.1 Jump Detection
+
+**Purpose**: Identify abrupt changes in trajectory that indicate tracking errors or identity swaps.
+
+**Method**: Combines standardized velocity and directional change metrics into a single outlier detection score. Points preceded by NA coordinates or exhibiting joint speed-direction anomalies (z-score \> threshold) are flagged as jumps. This has been designed to be hypersensitive (produces many false positives) as to not miss any potential errors, this means that it also assigns jumps when the tracking is contiguous and maybe the animal changes speed or direction abruptly. But these will be stitched back together later on with the trajectory reconstruction.
+
+**Mathematical basis**: $$
+z_{combo} = \sqrt{z_{speed}^2 + z_{direction}^2}
+$$
+
+where $z_{speed}$ and $z_{direction}$ are standardized deviations from mean speed and directional change.
+
+```{r detect-jumps}
+detect_jumps <- function(df, z_thresh = 3) {
+  df <- df |> 
+    arrange(time) |> 
+    mutate(jump_flag = ifelse(is.na(lag(x)) & is.na(lag(y)), TRUE, FALSE)) |>  #here I am automatically assigning any coordinate that is preceded by an NA coordiante as a jump, this means instances where the tracking was lost will be segmented. 
+    filter(!is.na(x), !is.na(y)) |> #now we can remove the NAs and detect the remaining jumps based on drastic changes in direction and velocity
+    mutate(
+      delta_x = x - dplyr::lag(x),
+      delta_y = y - dplyr::lag(y),
+      delta_t = time - dplyr::lag(time),
+      vx = delta_x / delta_t,
+      vy = delta_y / delta_t,
+      speed = sqrt(vx^2 + vy^2),
+      distance = sqrt(delta_x^2 + delta_y^2),
+      direction = atan2(vy, vx)
+    )
+  
+  # Directional change in radians (wraps around at 2π)
+  df <- df |> mutate(
+    delta_theta = abs(direction - lag(direction)),
+    delta_theta = ifelse(delta_theta > pi, 2*pi - delta_theta, delta_theta),
+    delta_speed = abs(speed - lag(speed))
+  )
+  
+  # Standardise both metrics
+  df <- df |> mutate(
+    z_speed = scale(speed)[,1],
+    z_dir   = scale(delta_theta)[,1],
+    z_combo = sqrt(z_speed^2 + z_dir^2)   # combined deviation metric
+  )
+  
+  # Flag joint outliers
+  df <- df |> mutate(jump_flag = ifelse(jump_flag == FALSE & z_combo > z_thresh, TRUE, jump_flag))
+  df
+}
+```
+
+### 1.2 Segment Assignment
+
+**Purpose**: Convert jump flags into contiguous segment identifiers.
+
+**Method**: Uses cumulative sum of jump flags to create unique segment IDs. Each jump initiates a new segment, ensuring that tracking discontinuities are properly isolated.
+
+**Implementation details**: - First row never flagged as jump (no reference point) - NA flags treated as FALSE (conservative approach) - Segments numbered sequentially from 1
+
+```{r assign-segments}
+assign_segments <- function(df){
+  # Ensure rows are in time order and build a clean jump indicator
+  df <- df |> arrange(time)
+  js <- df$jump_flag
+  # Treat missing flags as FALSE and never mark the first row as a jump
+  js[is.na(js)] <- FALSE
+  if (length(js) > 0) js[1] <- FALSE
+  # Start a new segment at EVERY jump row
+  df$segment <- 1L + cumsum(js)
+  df
+}
+```
+
+### 1.3 Speed Threshold Estimation
+
+**Purpose**: Calculate biologically plausible maximum velocity for feasibility filtering.
+
+**Method**: Uses log-normal distribution to robustly estimate extreme quantiles of the speed distribution. This avoids sensitivity to outliers while capturing the true upper limit of movement capability.
+
+**Mathematical formulation**: $$
+v_{max} = \exp\left(Q_{p}[\log(speed + \epsilon)]\right)
+$$
+
+where $Q_p$ is the $p$-th quantile (default: 0.999) and $\epsilon$ prevents log(0).
+
+```{r get-speed-threshold}
+get_speed_threshold <- function(df, prob = 0.999, eps = 1e-10) {
+  z <- log(pmax(df$speed, 0) + eps)
+  exp(stats::quantile(z, probs = prob, na.rm = TRUE))
+}
+```
+
+## 2. Tracking Gap Management
+
+### 2.1 Gap Identification
+
+**Purpose**: Detect large temporal gaps between segments that indicate complete tracking loss.
+
+**Method**: Compares consecutive segment endpoints to identify time intervals exceeding the specified window. These gaps are too large to bridge with spline extrapolation and have any confidence in the predictions.
+
+**Use case**: When an animal leaves the field of view or extended occlusions occur, creating disconnected tracking "islands" that should be processed independently.
+
+```{r identify-tracking-gaps}
+identify_tracking_gaps <- function(df_all, window) {
+  # Get time range for each segment
+  segment_ranges <- df_all |>
+    group_by(segment) |>
+    summarise(
+      start_time = min(time),
+      end_time = max(time),
+      .groups = "drop"
+    ) |>
+    arrange(start_time)
+  
+  # Calculate gaps between consecutive segments
+  gaps <- segment_ranges |>
+    mutate(
+      next_start = lead(start_time),
+      segment_after = lead(segment),
+      gap_duration = next_start - end_time
+    ) |>
+    filter(!is.na(gap_duration), gap_duration > window, !is.na(segment_after)) |>
+    select(
+      gap_start = end_time,
+      gap_end = next_start,
+      gap_duration,
+      segment_before = segment,
+      segment_after
+    )
+  
+  return(gaps)
+}
+```
+
+### 2.2 Ground Truth Segment Selection
+
+**Purpose**: Identify the most reliable segment to serve as an anchor point for bidirectional reconstruction.
+
+**Method**: Selects the longest segment that exhibits sufficient movement (\> `min_movement` pixels). Long segments with active movement are most likely to represent genuine tracking periods rather than artifacts.
+
+**Selection criteria**: 1. Filter segments by minimum total movement 2. Rank by number of time points (duration) 3. Select longest segment as ground truth 4. Fallback: If no segment meets movement threshold, simply take the longest
+
+```{r find-ground-truth-segment}
+find_ground_truth_segment <- function(df, min_movement = 500, group_id = NULL) {
+  # Filter by group if specified
+  if (!is.null(group_id)) {
+    df <- df |> filter(tracking_group == group_id)
+    if (nrow(df) == 0) {
+      stop(sprintf("No data found for tracking_group %d", group_id))
+    }
+  }
+  
+  segment_summary <- df |> 
+    group_by(segment) |> 
+    summarise(
+      n_points = n(),
+      total_movement = sum(distance, na.rm = TRUE),
+      .groups = "drop"
+    ) |> 
+    filter(total_movement > min_movement) |> 
+    arrange(desc(n_points))
+  
+  if (nrow(segment_summary) == 0) {
+    # If no segment meets movement threshold, just take the longest one
+    segment_summary <- df |>
+      group_by(segment) |>
+      summarise(n_points = n(), .groups = "drop") |>
+      arrange(desc(n_points))
+  }
+  
+  # Select the segment with the longest duration and sufficient movement
+  ground_truth_segment_id <- segment_summary$segment[1]
+  return(ground_truth_segment_id)
+}
+```
+
+### 2.3 Isolated Group Assignment
+
+**Purpose**: Partition trajectory segments into isolated tracking groups based on large temporal gaps.
+
+**Method**: Uses gap analysis to assign group IDs. Segments separated by gaps larger than the window parameter belong to different groups and are processed independently.
+
+**Rationale**: Attempting to bridge large gaps (e.g., \> 20 seconds) with spline extrapolation is unreliable. Instead, we identify isolated tracking "islands" and process each separately, then combine results.
+
+**Algorithm**: 1. Identify all gaps \> window threshold 2. Initialize all segments to group 1 3. Increment group ID at each large gap 4. Assign group memberships based on temporal position
+
+```{r identify-isolated-groups}
+identify_isolated_groups <- function(df_all, window) {
+  # Get gaps
+  gaps <- identify_tracking_gaps(df_all, window)
+  
+  if (nrow(gaps) == 0) {
+    # No large gaps found - everything is one group
+    df_all <- df_all |>
+      mutate(tracking_group = 1L)
+    return(df_all)
+  }
+  
+  # Get segment ranges
+  segment_ranges <- df_all |>
+    group_by(segment) |>
+    summarise(
+      start_time = min(time),
+      end_time = max(time),
+      .groups = "drop"
+    ) |>
+    arrange(start_time)
+  
+  # Assign groups based on gaps
+  segment_ranges <- segment_ranges |>
+    mutate(tracking_group = 1L)
+  
+  current_group <- 1L
+  for (i in seq_len(nrow(gaps))) {
+    current_group <- current_group + 1L
+    segment_after <- gaps$segment_after[i]
+    segment_ranges <- segment_ranges |>
+      mutate(tracking_group = ifelse(segment >= segment_after, current_group, tracking_group))
+  }
+  
+  # Join back to original data
+  df_all <- df_all |>
+    left_join(segment_ranges |> select(segment, tracking_group), by = "segment")
+  
+  return(df_all)
+}
+```
+
+## 3. Uncertainty Quantification
+
+### 3.1 Ornstein-Uhlenbeck Uncertainty Model
+
+**Purpose**: Quantify how positional uncertainty grows as a function of time gap between observations.
+
+**Method**: Empirically measures uncertainty through bootstrap sampling within reliable segments, then fits an Ornstein-Uhlenbeck (OU) saturation model to capture the temporal dynamics.
+
+**Theoretical foundation**:
+
+The OU process models uncertainty that grows with time but saturates at a maximum value:
+
+$$
+\sigma(t) = a \sqrt{\frac{1 - e^{-2\beta t}}{2\beta}}
+$$
+
+where: - $\sigma(t)$ = positional uncertainty at time gap $t$ - $a$ = asymptotic uncertainty (saturation level) - $\beta$ = rate of uncertainty growth (inverse of time constant)
+
+**Implementation**:
+
+1\. **Bootstrap sampling**: For each reliable segment (≥20 points), randomly sample 10,000 point pairs
+
+2\. **Empirical measurement**: Calculate positional deviation vs. time gap for all pairs
+
+3\. **Model fitting**: Fit OU saturation curve to observed uncertainty-vs-time relationship 4. **Return function**: Creates a closure that predicts $\sigma(t)$ for any time gap
+
+**Performance**: Vectorized implementation for 10-50× speedup over nested loops.
+
+```{r compute-uncertainty-model}
+compute_uncertainty_model <- function(df_all, window, n_boot = 10000) {
+  
+  # Step 1: Compute empirical uncertainty through bootstrap sampling
+  # Filter segments with sufficient points upfront
+  segment_counts <- df_all |>
+    group_by(segment) |>
+    summarise(n = n(), .groups = "drop") |>
+    filter(n >= 20)
+  
+  valid_segments <- segment_counts$segment
+  
+  if(length(valid_segments) == 0) {
+    warning("No valid segments for uncertainty computation, returning constant uncertainty")
+    return(function(time_gap) rep(100, length(time_gap)))
+  }
+  
+  # Pre-filter and prepare data once
+  seg_data <- df_all |>
+    filter(segment %in% valid_segments) |>
+    arrange(segment, time) |>
+    select(segment, time, x, y, speed, direction)
+  
+  # Pre-allocate result list
+  results <- vector("list", length(valid_segments))
+  
+  # Process each segment in vectorized batches
+  for(i in seq_along(valid_segments)) {
+    seg <- valid_segments[i]
+    seg_subset <- seg_data |> filter(segment == seg)
+    n_points <- nrow(seg_subset)
+    
+    # Generate all random pairs at once (vectorized)
+    idx1 <- sample(1:n_points, n_boot, replace = TRUE)
+    idx2 <- sample(1:n_points, n_boot, replace = TRUE)
+    
+    # Ensure time ordering and different indices
+    valid <- idx1 != idx2
+    idx_min <- pmin(idx1[valid], idx2[valid])
+    idx_max <- pmax(idx1[valid], idx2[valid])
+    
+    # Extract values vectorized
+    point1 <- seg_subset[idx_min, ]
+    point2 <- seg_subset[idx_max, ]
+    
+    # Compute all metrics vectorized
+    time_gap <- as.numeric(point2$time - point1$time)
+    
+    # Filter valid time gaps (use window parameter)
+    valid_gaps <- time_gap > 0 & time_gap <= window
+    
+    if(sum(valid_gaps) > 0) {
+      # Vectorized deviation calculations
+      dx <- point2$x[valid_gaps] - point1$x[valid_gaps]
+      dy <- point2$y[valid_gaps] - point1$y[valid_gaps]
+      
+      results[[i]] <- tibble(
+        segment = seg,
+        time_gap = time_gap[valid_gaps],
+        positional_deviation = sqrt(dx^2 + dy^2),
+        speed_deviation = abs(point2$speed[valid_gaps] - point1$speed[valid_gaps]),
+        directional_deviation = abs(atan2(sin(point2$direction[valid_gaps] - point1$direction[valid_gaps]), 
+                                          cos(point2$direction[valid_gaps] - point1$direction[valid_gaps]))),
+        initial_speed = point1$speed[valid_gaps],
+        initial_direction = point1$direction[valid_gaps]
+      )
+    }
+  }
+  
+  empirical_uncertainty <- bind_rows(results)
+  
+  if(nrow(empirical_uncertainty) == 0) {
+    warning("No empirical uncertainty data, returning constant uncertainty")
+    return(function(time_gap) rep(100, length(time_gap)))
+  }
+  
+  # Step 2: Summarize uncertainty by time gap
+  uncertainty_summary <- empirical_uncertainty |>
+    group_by(time_gap) |>
+    summarise(
+      mean_positional = mean(positional_deviation, na.rm = TRUE),
+      sd_positional = sd(positional_deviation, na.rm = TRUE),
+      mean_speed = mean(speed_deviation, na.rm = TRUE),
+      mean_direction = mean(directional_deviation, na.rm = TRUE),
+      n = n(),
+      .groups = "drop"
+    ) |>
+    filter(n > 10)
+  
+  # Extract time gaps and observed standard deviations
+  time_gap_vec <- uncertainty_summary$time_gap
+  observed_sd <- uncertainty_summary$sd_positional
+  
+  # Remove any NA or non-finite values
+  valid_idx <- !is.na(observed_sd) & is.finite(observed_sd)
+  time_gap_vec <- time_gap_vec[valid_idx]
+  observed_sd <- observed_sd[valid_idx]
+  
+  if(length(time_gap_vec) < 3) {
+    warning("Insufficient data for model fitting, returning constant uncertainty")
+    return(function(time_gap) rep(mean(observed_sd, na.rm = TRUE), length(time_gap)))
+  }
+  
+  # Step 3: Fit Ornstein-Uhlenbeck saturation model
+  ou_model <- tryCatch({
+    nls(observed_sd ~ a * sqrt((1 - exp(-2 * beta * time_gap_vec)) / (2 * beta)),
+        start = list(a = max(observed_sd), beta = 0.3))
+  }, error = function(e) {
+    # Fallback to simplified saturation form if full OU doesn't converge
+    tryCatch({
+      nls(observed_sd ~ a * (1 - exp(-b * time_gap_vec)),
+          start = list(a = max(observed_sd), b = 0.5))
+    }, error = function(e2) {
+      warning("Model fitting failed, returning linear approximation")
+      return(NULL)
+    })
+  })
+  
+  # Step 4: Return prediction function
+  if(is.null(ou_model)) {
+    # Fallback: linear interpolation/extrapolation
+    return(function(time_gap) {
+      approx(time_gap_vec, observed_sd, xout = time_gap, rule = 2)$y
+    })
+  } else {
+    # Return OU model prediction function
+    return(function(time_gap) {
+      # Create a data frame with the correct variable name used in model fitting
+      pred_data <- data.frame(time_gap_vec = time_gap)
+      uncertainty <- predict(ou_model, newdata = pred_data)
+      pmax(uncertainty, 0)  # Ensure non-negative
+    })
+  }
+}
+```
+
+### 3.2 Log-Likelihood Calculation
+
+**Purpose**: Score candidate segments based on spatial fit quality penalized by uncertainty.
+
+**Method**: Simplified negative log-likelihood that penalizes both residual gap and uncertainty magnitude.
+
+**Formula**: $$
+\text{log-likelihood} = -\sigma(t) - 0.5 \cdot r
+$$
+
+where: - $\sigma(t)$ = time-dependent uncertainty - $r$ = residual gap (spatial distance between prediction and observation)
+
+**Interpretation**: Higher (less negative) scores indicate better matches. Both large residuals and large uncertainties decrease the score, ensuring we prefer: - Small residual gaps (good spatial fit) - Small uncertainties (short time gaps, high confidence)
+
+*Note*: This is a pragmatic approximation; full Gaussian likelihood would be $-\log(\sigma) - r^2/(2\sigma^2)$. But due to the regularising term $(2\sigma^2)$, this isn't directly applicable to tour application. Typically the uncertainty term allows for predictions in regions of low uncertainty to be more likely than those in regions of high uncertainty where the residual is the same. Which makes sense for the application of confidence in plausibility of the data point. However, in this case we want to penalise both high uncertainty and high residuals directly, hence this formulation. Further work and potentially more mathmatically rigorous backing will be directed here in future, but for now this works well in practice.
+
+```{r calculate-log-likelihood}
+calculate_log_liklihood <- function(residual_gap, sigma_t) {
+  -sigma_t - 0.5*residual_gap
+}
+```
+
+## 4. Visualisation Utilities
+
+### 4.1 Diagnostic Plot Generation
+
+**Purpose**: Create time-series diagnostic plots showing spline fits, uncertainty envelopes, and candidate segments.
+
+**Components**: - **Blue points**: Observed data used for spline fitting - **Purple line**: GAM spline prediction (composite X+Y position) - **Purple ribbon**: Uncertainty envelope ($\pm \sigma(t)$) - **Coloured diamonds**: Candidate segment start/end points - **Coloured dots**: Predicted positions on spline - **Black circle**: Top-ranked candidate - **Black X**: Infeasible candidates (exceed speed threshold)
+
+**Interactive features**: Hover tooltips show detailed candidate metrics (rank, log-likelihood, residual, velocity, etc.)
+
+```{r generate-diagnostic-plot}
+generate_diagnostic_plot <- function(data_for_spline, plot_df, features_df, 
+                                      current_seg_number, ground_truth_segment, direction = "forward") {
+  
+  coord_col <- if (direction == "forward") "start" else "end"
+  
+  y_min <- min(c(data_for_spline$x + data_for_spline$y,
+                 features_df[[paste0(coord_col, "_x")]] + features_df[[paste0(coord_col, "_y")]]),
+               na.rm = TRUE) - 100
+  y_max <- max(c(data_for_spline$x + data_for_spline$y,
+                 plot_df$fit_xy,
+                 features_df[[paste0(coord_col, "_x")]] + features_df[[paste0(coord_col, "_y")]]),
+               na.rm = TRUE) + 100
+  
+  # Determine which region is the projection based on direction
+  time_ref <- if (direction == "forward") max(data_for_spline$time) else min(data_for_spline$time)
+  plot_df_projection <- plot_df |>
+    mutate(is_projection = if (direction == "forward") time > time_ref else time < time_ref)
+  
+  ggplot() +
+    # Data points used for spline fitting
+    geom_point(data = data_for_spline, aes(x = time, y = x + y),
+               colour = "darkblue", alpha = 0.6) +
+    # Complete spline line
+    geom_line(data = plot_df_projection, aes(x = time, y = fit_xy),
+              colour = "purple", linewidth = 0.5) +
+    # Uncertainty ribbon only in projection direction
+    geom_ribbon(data = filter(plot_df_projection, is_projection),
+                aes(x = time, ymin = fit_xy - uncertainty, ymax = fit_xy + uncertainty),
+                fill = "purple", alpha = 0.2) +
+    geom_point(data = features_df,
+               aes(x = .data[[paste0(coord_col, "_time")]], 
+                   y = pred_x + pred_y, colour = factor(segment)),
+               size = 2, shape = 16, alpha = 0.8) +
+    geom_point(data = filter(features_df, rank == 1),
+               aes(x = .data[[paste0(coord_col, "_time")]], 
+                   y = .data[[paste0(coord_col, "_x")]] + .data[[paste0(coord_col, "_y")]]),
+               size = 6, shape = 1, colour = "black") +
+    geom_point(data = filter(features_df, !feasible),
+               aes(x = .data[[paste0(coord_col, "_time")]], 
+                   y = .data[[paste0(coord_col, "_x")]] + .data[[paste0(coord_col, "_y")]]),
+               size = 6, shape = 4, colour = "black") +
+    geom_point(data = features_df,
+               aes(x = .data[[paste0(coord_col, "_time")]], 
+                   y = .data[[paste0(coord_col, "_x")]] + .data[[paste0(coord_col, "_y")]], 
+                   colour = factor(segment),
+                   text = paste0("Segment: ", segment,
+                                 "\nRank: ", ifelse(is.na(rank), "Infeasible", rank),
+                                 "\nlog_liklihood: ", round(log_liklihood, 6),
+                                 "\nΔt: ", round(delta_t, 2), "s",
+                                 "\nResidual: ", round(residual_gap, 2),
+                                 "\nσ(t): ", round(sigma_t, 2),
+                                 "\nSpatial Gap: ", round(spatial_gap, 2),
+                                 "\nTheoretical Vel: ", round(theoretical_velocity, 2),
+                                 "\nTheoretical Accel: ", round(theoretical_acceleration, 2),
+                                 "\nPos (pred): (", round(pred_x, 2), ", ", round(pred_y, 2), ")",
+                                 "\nPos (", coord_col, "): (", round(.data[[paste0(coord_col, "_x")]], 2), 
+                                 ", ", round(.data[[paste0(coord_col, "_y")]], 2), ")",
+                                 "\nFeasible: ", ifelse(feasible, "Yes", "No"))),
+               size = 3, shape = 18) +
+    geom_text(data = features_df,
+              aes(x = .data[[paste0(coord_col, "_time")]], 
+                  y = .data[[paste0(coord_col, "_x")]] + .data[[paste0(coord_col, "_y")]], 
+                  label = segment, colour = factor(segment)),
+              vjust = -1.2, show.legend = FALSE, size = 3.2) +
+    labs(x = "Time (s)", y = "composite spatial position (X + Y)",
+         title = paste0("Uncertainty-weighted ", toupper(direction), " - Segment: ", current_seg_number)) +
+    theme_classic() +
+    theme(legend.position = "none") +
+    coord_cartesian(ylim = c(y_min, y_max))
+}
+```
+
+### 4.2 Spatial Plot Generation
+
+**Purpose**: Create 2D spatial plots showing trajectories in physical coordinates.
+
+**Components**: - **Blue points**: Observed positions used for spline fitting - **Purple path**: GAM spline trajectory - **Purple ribbon**: Spatial uncertainty envelope (vertical only for visualisation) - **Coloured diamonds**: Candidate segment positions - **Coloured dots**: Predicted positions from spline - **Black circle**: Top-ranked candidate - **Black X**: Infeasible candidates
+
+**Fixed aspect ratio**: Ensures spatial relationships are preserved (1:1 x:y ratio).
+
+```{r generate-spatial-plot}
+generate_spatial_plot <- function(data_for_spline, plot_df_spatial, features_df,
+                                   current_seg_number, ground_truth_segment, direction = "forward") {
+  
+  coord_col <- if (direction == "forward") "start" else "end"
+  
+  # Determine which region is the projection based on direction
+  time_ref <- if (direction == "forward") max(data_for_spline$time) else min(data_for_spline$time)
+  plot_df_spatial_projection <- plot_df_spatial |>
+    mutate(is_projection = if (direction == "forward") time > time_ref else time < time_ref)
+  
+  ggplot() +
+    # Data points used for spline fitting
+    geom_point(data = data_for_spline, aes(x = x, y = y), colour = "darkblue", alpha = 0.6) +
+    # Complete spline path
+    geom_path(data = plot_df_spatial_projection, aes(x = fit_x, y = fit_y), 
+              colour = "purple", linewidth = 0.4) +
+    # Uncertainty ribbon only in projection direction
+    geom_ribbon(data = filter(plot_df_spatial_projection, is_projection),
+                aes(x = fit_x, ymin = fit_y - uncertainty, ymax = fit_y + uncertainty),
+                fill = "purple", alpha = 0.15) +
+    geom_point(data = features_df,
+               aes(x = pred_x, y = pred_y, colour = factor(segment)),
+               size = 2, shape = 16, alpha = 0.8) +
+    geom_point(data = filter(features_df, rank == 1), 
+               aes(x = .data[[paste0(coord_col, "_x")]], y = .data[[paste0(coord_col, "_y")]]), 
+               size = 6, shape = 1, colour = "black") +
+    geom_point(data = filter(features_df, !feasible), 
+               aes(x = .data[[paste0(coord_col, "_x")]], y = .data[[paste0(coord_col, "_y")]]), 
+               size = 6, shape = 4, colour = "black") +
+    geom_point(data = features_df, 
+               aes(x = .data[[paste0(coord_col, "_x")]], y = .data[[paste0(coord_col, "_y")]], 
+                   colour = factor(segment),
+                   text = paste0("Segment: ", segment,
+                                 "\nRank: ", ifelse(is.na(rank), "Infeasible", rank),
+                                 "\nlog_liklihood: ", round(log_liklihood, 6),
+                                 "\nΔt: ", round(delta_t, 2), "s",
+                                 "\nResidual: ", round(residual_gap, 2),
+                                 "\nσ(t): ", round(sigma_t, 2),
+                                 "\nSpatial Gap: ", round(spatial_gap, 2),
+                                 "\nTheoretical Vel: ", round(theoretical_velocity, 2),
+                                 "\nTheoretical Accel: ", round(theoretical_acceleration, 2),
+                                 "\nPos (pred): (", round(pred_x, 2), ", ", round(pred_y, 2), ")",
+                                 "\nPos (", coord_col, "): (", round(.data[[paste0(coord_col, "_x")]], 2), 
+                                 ", ", round(.data[[paste0(coord_col, "_y")]], 2), ")",
+                                 "\nFeasible: ", ifelse(feasible, "Yes", "No"))), 
+               size = 3, shape = 18) +
+    geom_text(data = features_df, 
+              aes(x = .data[[paste0(coord_col, "_x")]], y = .data[[paste0(coord_col, "_y")]], 
+                  label = segment, colour = factor(segment)), 
+              vjust = -1.2, show.legend = FALSE, size = 3.2) +
+    labs(x = "x", y = "y", 
+         title = paste0("Uncertainty-weighted ", toupper(direction), " - Segment: ", current_seg_number, 
+                        "\n", abs(current_seg_number - ground_truth_segment), " segments from ground truth")) +
+    theme_classic() +
+    theme(legend.position = "none") +
+    coord_fixed(ratio = 1,
+                ylim = c(min(c(data_for_spline$y, features_df[[paste0(coord_col, "_y")]]), na.rm = TRUE), 
+                         max(c(data_for_spline$y, features_df[[paste0(coord_col, "_y")]]), na.rm = TRUE)),
+                xlim = c(min(c(data_for_spline$x, features_df[[paste0(coord_col, "_x")]]), na.rm = TRUE), 
+                         max(c(data_for_spline$x, features_df[[paste0(coord_col, "_x")]]), na.rm = TRUE)))
+}
+```
+
+## 5. Candidate Selection and Ranking
+
+### 5.1 Candidate Segment Identification
+
+**Purpose**: Find all segments that have at least one time point within the search window, with adaptive window expansion.
+
+**Method**: Filters segments by temporal overlap with the prediction interval. If fewer than `min_candidates` segments are found, iteratively expands the window until the minimum is reached or data boundaries are hit.
+
+**Time interval logic**: - **Forward**: \[t_current, t_current + window\] - **Backward**: \[t_current - window, t_current\]
+
+**Adaptive expansion**: If candidates \< `min_candidates`, expands window by 50% increments up to 5× original window, respecting data boundaries.
+
+```{r get-candidate-segments}
+get_candidate_segments <- function(df, time_interval, current_segment = NULL, 
+                                   min_candidates = 5, direction = "forward") {
+  # Store original interval and data boundaries
+  original_interval <- time_interval
+  data_min_time <- min(df$time, na.rm = TRUE)
+  data_max_time <- max(df$time, na.rm = TRUE)
+  
+  # Initial window size
+  window_size <- abs(diff(time_interval))
+  
+  # Try to find candidates, expanding window if needed
+  max_expansion_factor <- 5  # Don't expand beyond 5x original window
+  expansion_factor <- 1
+  
+  repeat {
+    # Find segments in current interval
+    candidate_segments <- df |> 
+      filter(time >= min(time_interval),
+             time <= max(time_interval))  |> 
+      pull(segment) |> 
+      unique()
+    
+    # Remove the segment that was used to fit the spline 
+    if (!is.null(current_segment)) {
+      candidate_segments <- setdiff(candidate_segments, current_segment)
+    }
+    
+    # Check if we have enough candidates
+    if (length(candidate_segments) >= min_candidates) {
+      break
+    }
+    
+    # Check if we've hit data boundaries (can't expand further)
+    if (direction == "forward") {
+      at_boundary <- time_interval[2] >= data_max_time
+    } else {
+      at_boundary <- time_interval[1] <= data_min_time
+    }
+    
+    if (at_boundary || expansion_factor >= max_expansion_factor) {
+      # Can't expand further - return what we have
+      break
+    }
+    
+    # Expand window by 50%
+    expansion_factor <- expansion_factor + 0.5
+    expanded_window <- window_size * expansion_factor
+    
+    if (direction == "forward") {
+      time_interval <- c(original_interval[1], 
+                        min(original_interval[1] + expanded_window, data_max_time))
+    } else {
+      time_interval <- c(max(original_interval[2] - expanded_window, data_min_time), 
+                        original_interval[2])
+    }
+  }
+  
+  return(candidate_segments)
+}
+```
+
+### 5.2 Uncertainty-Weighted Candidate Ranking
+
+**Purpose**: Score and rank candidate segments for linking based on uncertainty-weighted likelihood.
+
+**Method**: Core algorithm that: 1. Fits multivariate GAM to recent trajectory (75 points) 2. Extrapolates positions to candidate segment endpoints 3. Calculates residual gaps and time-dependent uncertainty 4. Computes kinematic features (velocity, acceleration) 5. Filters by feasibility (biological speed limits) 6. Ranks by log-likelihood (spatial fit penalized by uncertainty)
+
+**Direction parameter**: - `"forward"`: Links segments **after** current track (uses start points) - `"backward"`: Links segments **before** current track (uses end points)
+
+**Adaptive candidate search**: If fewer than `min_candidates` segments are found within the initial `window`, the search window is adaptively expanded (up to 5× original size) to ensure sufficient candidate diversity. This improves robustness in sparse tracking regions.
+
+**Key features computed**:
+
+| Feature | Description | Formula |
+|------------------------|------------------------|------------------------|
+| `delta_t` | Time gap to candidate | $t_{candidate} - t_{current}$ |
+| `pred_x, pred_y` | Spline-predicted position | GAM prediction at $t_{candidate}$ |
+| `residual_gap` | Spatial prediction error | $\sqrt{(x_{obs} - x_{pred})^2 + (y_{obs} - y_{pred})^2}$ |
+| `spatial_gap` | Euclidean distance | $\sqrt{\Delta x^2 + \Delta y^2}$ |
+| `theoretical_velocity` | Required speed | $spatial\_gap / |\Delta t|$ |
+| `sigma_t` | Time-dependent uncertainty | $\sigma(|\Delta t|)$ from OU model |
+| `log_likelihood` | Match quality score | $-\sigma(t) - 0.5 \cdot residual\_gap$ |
+| `feasible` | Biological plausibility | $velocity \leq v_{max}^{(0.999)}$ |
+
+**Output**: Ranked table of candidates with feasibility flags and diagnostic plots (optional).
+
+```{r rank-candidates-uncertainty}
+rank_candidates_uncertainty <- function(current_track,
+                                        df_all,
+                                        window = 30,
+                                        speed_threshold_quantile = 0.999,
+                                        diagnostic_plots = FALSE,
+                                        compute_uncertainty = NULL,
+                                        direction = "forward",
+                                        min_candidates = 5) {
+  diagnostic_plot <- NULL
+  spatial_plot <- NULL
+  
+  # Create uncertainty model if not provided
+  if (is.null(compute_uncertainty)) {
+    compute_uncertainty <- compute_uncertainty_model(df_all, window = window)
+  }
+
+  # Direction-specific data selection
+  if (direction == "forward") {
+    data_for_spline <- current_track |> arrange(time) |> slice_tail(n = 75)
+    current_seg_number <- (current_track |> arrange(time) |> slice_tail(n = 1))$segment
+  } else {
+    data_for_spline <- current_track |> arrange(time) |> slice_head(n = 75)
+    current_seg_number <- (current_track |> arrange(time) |> slice_head(n = 1))$segment
+  }
+  
+  if (nrow(data_for_spline) < 15) {
+    message("Warning: Not enough data points (", nrow(data_for_spline), ") for spline fitting")
+    return(list(features_df = tibble(), diagnostic_plot = NULL, spatial_plot = NULL))
+  }
+
+  # Fit multivariate mgcv model
+  mv_gam <- tryCatch({
+    mgcv::gam(list(x ~ s(time, k = min(10, floor(nrow(data_for_spline)/3))),
+                   y ~ s(time, k = min(10, floor(nrow(data_for_spline)/3)))),
+              family = mvn(d = 2), data = data_for_spline)
+  }, error = function(e) {
+    message("Error fitting multivariate GAM: ", e$message)
+    return(NULL)
+  })
+  
+  if (is.null(mv_gam)) {
+    return(list(features_df = tibble(), diagnostic_plot = NULL, spatial_plot = NULL))
+  }
+
+  # Direction-specific time intervals
+  if (direction == "forward") {
+    time_interval <- c(max(data_for_spline$time), max(data_for_spline$time) + window)
+    new_time <- seq(from = min(data_for_spline$time), to = max(time_interval), length.out = 200)
+    time_ref <- max(data_for_spline$time)
+  } else {
+    time_interval <- c(min(data_for_spline$time) - window, min(data_for_spline$time))
+    new_time <- seq(from = min(time_interval), to = max(data_for_spline$time), length.out = 200)
+    time_ref <- min(data_for_spline$time)
+  }
+
+  xy_pred <- predict(mv_gam, newdata = tibble(time = new_time), type = "response")
+  candidate_segments <- get_candidate_segments(df_all, time_interval, 
+                                                unique(data_for_spline$segment),
+                                                min_candidates = min_candidates,
+                                                direction = direction)
+
+  if (length(candidate_segments) == 0L) {
+    return(list(features_df = tibble(), diagnostic_plot = NULL, spatial_plot = NULL))
+  }
+
+  # Get candidate coordinates (start for forward, end for backward)
+  if (direction == "forward") {
+    candidate_coords <- df_all |>
+      filter(segment %in% candidate_segments) |>
+      group_by(segment) |>
+      arrange(time, .by_group = TRUE) |>
+      summarise(start_time = first(time), start_x = first(x), start_y = first(y), .groups = "drop")
+    
+    current_point <- data_for_spline |>
+      arrange(time) |>
+      filter(time >= (max(time) - 1)) |>
+      select(time, x, y, speed, direction) |>
+      mutate(acceleration = speed - lag(speed)) |>
+      summarise(time = max(time), x = dplyr::last(x), y = dplyr::last(y),
+                speed = mean(speed), acceleration = mean(acceleration, na.rm = TRUE),
+                direction = mean(direction))
+  } else {
+    candidate_coords <- df_all |>
+      filter(segment %in% candidate_segments) |>
+      group_by(segment) |>
+      arrange(time, .by_group = TRUE) |>
+      summarise(end_time = last(time), end_x = last(x), end_y = last(y), .groups = "drop")
+    
+    current_point <- data_for_spline |>
+      arrange(time) |>
+      filter(time <= (min(time) + 1)) |>
+      select(time, x, y, speed, direction) |>
+      mutate(acceleration = speed - lag(speed)) |>
+      summarise(time = min(time), x = first(x), y = first(y),
+                speed = mean(speed), acceleration = mean(acceleration, na.rm = TRUE),
+                direction = mean(direction))
+  }
+
+  # Unified feature calculation
+  coord_time <- if (direction == "forward") "start_time" else "end_time"
+  coord_x <- if (direction == "forward") "start_x" else "end_x"
+  coord_y <- if (direction == "forward") "start_y" else "end_y"
+  
+  features_df <- candidate_coords |>
+    rowwise() |>
+    mutate(
+      # Time gap calculation (signed for forward, absolute value used in uncertainty for backward)
+      delta_t = as.numeric(.data[[coord_time]] - current_point$time),
+      xy_pred_candidate = list(predict(mv_gam, newdata = data.frame(time = .data[[coord_time]]), type = "response")),
+      pred_x = xy_pred_candidate[[1]][1],
+      pred_y = xy_pred_candidate[[2]][1],
+      residuals_x = .data[[coord_x]] - pred_x,
+      residuals_y = .data[[coord_y]] - pred_y,
+      residual_gap = sqrt(residuals_x^2 + residuals_y^2),
+      delta_x = .data[[coord_x]] - current_point$x,
+      delta_y = .data[[coord_y]] - current_point$y,
+      spatial_gap = sqrt(delta_x^2 + delta_y^2),
+      theoretical_velocity = spatial_gap / abs(delta_t),
+      theoretical_acceleration = (theoretical_velocity - current_point$speed) / abs(delta_t),
+      # Use absolute value of delta_t for uncertainty (backward compatibility)
+      sigma_t = compute_uncertainty(abs(delta_t)),
+      log_liklihood = calculate_log_liklihood(residual_gap, sigma_t)
+    ) |>
+    ungroup() |>
+    select(-xy_pred_candidate) |>
+    mutate(
+      thr = get_speed_threshold(df_all, prob = speed_threshold_quantile),
+      feasible = theoretical_velocity <= thr
+    ) |>
+    arrange(desc(feasible), desc(log_liklihood)) |>
+    mutate(
+      rank = if_else(feasible, row_number(), NA_integer_)
+    )
+
+  # Fallback ranking
+  if (nrow(features_df) > 0 && all(is.na(features_df$rank))) {
+    features_df <- features_df |>
+      arrange(desc(log_liklihood)) |>
+      mutate(rank = replace(rep(NA_integer_, n()), 1, 1))
+  }
+
+  # Generate plots if requested
+  if (diagnostic_plots) {
+    plot_df <- tibble(
+      time = new_time,
+      fit_x = as.numeric(xy_pred[, 1]),
+      fit_y = as.numeric(xy_pred[, 2]),
+      fit_xy = fit_x + fit_y,
+      time_gap = abs(time - time_ref),
+      uncertainty = ifelse(abs(time - time_ref) > 0, compute_uncertainty(abs(time - time_ref)), 0)
+    )
+    
+    diagnostic_plot <- generate_diagnostic_plot(data_for_spline, plot_df, features_df, 
+                                                 current_seg_number, min(df_all$segment), direction)
+    
+    plot_df_spatial <- tibble(
+      fit_x = as.numeric(xy_pred[, 1]),
+      fit_y = as.numeric(xy_pred[, 2]),
+      time = new_time,
+      time_gap = abs(time - time_ref),
+      uncertainty = ifelse(abs(time - time_ref) > 0, compute_uncertainty(abs(time - time_ref)), 0)
+    )
+    
+    spatial_plot <- generate_spatial_plot(data_for_spline, plot_df_spatial, features_df,
+                                           current_seg_number, min(df_all$segment), direction)
+  }
+
+  list(features_df = features_df, diagnostic_plot = diagnostic_plot, spatial_plot = spatial_plot)
+}
+```
+
+## 6. Bidirectional Trajectory Reconstruction
+
+### 6.1 Forward Propagation
+
+**Purpose**: Iteratively link segments forward in time from the ground truth anchor.
+
+**Algorithm**: 1. **Initialize**: Start with ground truth segment 2. **Identify isolated groups**: Partition segments by large temporal gaps 3. **Group-wise processing**: Handle each tracking group independently 4. **Iterative linking**: - Rank all candidate segments in forward window - Select top-ranked feasible candidate - Append to current track - Mark as used (prevent reuse) - Repeat until no candidates remain 5. **Combine groups**: Merge all group tracks chronologically
+
+**Gap awareness**: Large gaps (\> window) trigger separate tracking groups, preventing unrealistic long-distance extrapolation.
+
+**Output**: - `track`: Complete reconstructed trajectory - `decisions`: Decision log with candidate scores at each step - `plots`: Diagnostic visualizations (if requested) - `n_groups`: Number of isolated tracking groups processed
+
+```{r propagate-forward-uncertainty}
+propagate_forward_uncertainty <- function(df_all,
+                                          ground_truth_segment,
+                                          window = 30,
+                                          speed_threshold_quantile = 0.999,
+                                          max_steps = 2000,
+                                          save_plots = FALSE,
+                                          min_candidates = 5) {
+
+  # Step 1: Identify isolated tracking groups based on large gaps
+  df_all <- identify_isolated_groups(df_all, window = window)
+  
+  n_groups <- max(df_all$tracking_group, na.rm = TRUE)
+  
+  if (n_groups > 1) {
+    cat(sprintf("Found %d isolated tracking groups (gaps > %s seconds)\n", n_groups, window))
+  }
+  
+  # Step 2: Determine which group the ground truth segment belongs to
+  start_group <- df_all |>
+    filter(segment == ground_truth_segment) |>
+    pull(tracking_group) |>
+    unique() |>
+    first()
+  
+  # Step 3: Process each tracking group
+  all_tracks <- list()
+  all_decisions <- list()
+  all_plots <- list()
+  
+  for (group_id in seq_len(n_groups)) {
+    group_data <- df_all |> filter(tracking_group == group_id)
+    
+    # Determine starting segment for this group
+    if (group_id == start_group) {
+      group_ground_truth_segment <- ground_truth_segment
+    } else {
+      group_ground_truth_segment <- tryCatch({
+        find_ground_truth_segment(df_all, group_id = group_id)
+      }, error = function(e) {
+        # If can't find ground truth, skip this group
+        return(NULL)
+      })
+    }
+    
+    if (is.null(group_ground_truth_segment)) {
+      cat(sprintf("  Skipping group %d (no valid ground truth)\n", group_id))
+      next
+    }
+    
+    cat(sprintf("  Processing group %d: starting from segment %d\n", group_id, group_ground_truth_segment))
+    
+    # Compute uncertainty model once per group for efficiency
+    compute_uncertainty <- compute_uncertainty_model(group_data, window = window)
+    
+    # Propagate forward within this group only
+    current_track <- group_data |> filter(segment == group_ground_truth_segment)
+    used_segments <- unique(current_track$segment)
+    
+    history_rows <- list()
+    step_plots <- list()
+    
+    for (step in seq_len(max_steps)) {
+      res <- rank_candidates_uncertainty(
+        current_track,
+        df_all = group_data,
+        window = window,
+        speed_threshold_quantile = speed_threshold_quantile,
+        diagnostic_plots = save_plots,
+        compute_uncertainty = compute_uncertainty,
+        direction = "forward",
+        min_candidates = min_candidates
+      )
+      
+      feats <- res$features_df
+      
+      # Stop if no candidates
+      if (nrow(feats) == 0L) break
+      
+      # Never reuse a segment
+      feats <- feats |> filter(!segment %in% used_segments)
+      
+      # If still nothing, stop
+      if (nrow(feats) == 0L) break
+      
+      # Choose: highest probability winner (already ranked)
+      winner <- feats |>
+        arrange(is.na(rank), rank, desc(log_liklihood)) |>
+        slice(1)
+      
+      # Append to history
+      history_rows[[length(history_rows) + 1]] <-
+        feats |>
+        mutate(step = step,
+               chosen = segment == winner$segment,
+               tracking_group = group_id)
+      
+      if (save_plots) {
+        step_plots[[length(step_plots) + 1]] <- list(
+          diagnostic_plot = res$diagnostic_plot, 
+          spatial_plot = res$spatial_plot,
+          group_id = group_id
+        )
+      }
+      
+      # Append the winning segment to the track
+      seg_to_add <- winner$segment
+      current_track <- bind_rows(current_track, group_data |> filter(segment == seg_to_add))
+      used_segments <- c(used_segments, seg_to_add)
+    }
+    
+    # Store results for this group
+    all_tracks[[group_id]] <- current_track
+    if (length(history_rows)) {
+      all_decisions[[group_id]] <- bind_rows(history_rows)
+    }
+    all_plots <- c(all_plots, step_plots)
+  }
+  
+  # Step 4: Combine all groups
+  combined_track <- bind_rows(all_tracks) |> arrange(time)
+  combined_decisions <- if (length(all_decisions)) {
+    bind_rows(all_decisions) |> arrange(tracking_group, step, desc(chosen), desc(log_liklihood))
+  } else {
+    tibble()
+  }
+
+  list(
+    track = combined_track,
+    decisions = combined_decisions,
+    plots = all_plots,
+    n_groups = n_groups
+  )
+}
+```
+
+### 6.2 Backward Propagation
+
+**Purpose**: Iteratively link segments backward in time from the ground truth anchor.
+
+**Algorithm**: Mirrors forward propagation but operates in reverse temporal direction: 1. **Initialize**: Start with ground truth segment 2. **Identify isolated groups**: Same gap-based partitioning as forward 3. **Group-wise processing**: Each tracking group handled independently 4. **Iterative linking**: - Rank candidates in backward window (earlier times) - Select top-ranked feasible candidate - **Prepend** to current track (add to beginning) - Prevent reuse of segments - Continue until candidates exhausted 5. **Combine groups**: Merge chronologically
+
+**Key difference from forward**: Candidates' **end points** are linked to current track's **start point**, and winning segments are prepended rather than appended.
+
+**Output**: Same structure as forward propagation (track, decisions, plots, n_groups).
+
+```{r propagate-backwards-uncertainty}
+propagate_backwards_uncertainty <- function(df_all,
+                                             ground_truth_segment,
+                                             window = 30,
+                                             speed_threshold_quantile = 0.999,
+                                             max_steps = 50,
+                                             collect_plots = TRUE,
+                                             min_candidates = 5) {
+  
+  # Step 1: Identify isolated tracking groups based on large gaps
+  df_all <- identify_isolated_groups(df_all, window = window)
+  
+  n_groups <- max(df_all$tracking_group, na.rm = TRUE)
+  
+  if (n_groups > 1) {
+    cat(sprintf("Found %d isolated tracking groups (gaps > %s seconds)\n", n_groups, window))
+  }
+  
+  # Determine which group the ground truth segment belongs to
+  start_group <- df_all |>
+    filter(segment == ground_truth_segment) |>
+    pull(tracking_group) |>
+    unique() |>
+    first()
+  
+  # Step 2: Process each tracking group
+  all_tracks <- list()
+  all_decisions <- list()
+  all_plots <- list()
+  
+  for (group_id in seq_len(n_groups)) {
+    group_data <- df_all |> filter(tracking_group == group_id)
+    
+    # Determine starting segment for this group
+    if (group_id == start_group) {
+      group_ground_truth_segment <- ground_truth_segment
+    } else {
+      group_ground_truth_segment <- tryCatch({
+        find_ground_truth_segment(df_all, group_id = group_id)
+      }, error = function(e) {
+        return(NULL)
+      })
+    }
+    
+    if (is.null(group_ground_truth_segment)) {
+      cat(sprintf("  Skipping group %d (no valid ground truth)\n", group_id))
+      next
+    }
+    
+    cat(sprintf("  Processing group %d backwards: starting from segment %d\n", group_id, group_ground_truth_segment))
+    
+    # Compute uncertainty model once per group for efficiency
+    compute_uncertainty <- compute_uncertainty_model(group_data, window = window)
+    
+    # Propagate backwards within this group only
+    current_track <- group_data |> filter(segment == group_ground_truth_segment)
+    decision_log <- list()
+    per_step_plots <- list()
+    step_counter <- 0
+    
+    repeat {
+      step_counter <- step_counter + 1
+      
+      if (step_counter > max_steps) {
+        message("Reached max_steps = ", max_steps, " for group ", group_id)
+        break
+      }
+      
+      # Rank candidates using unified function with backward direction
+      res <- rank_candidates_uncertainty(
+        current_track = current_track,
+        df_all = group_data,
+        window = window,
+        speed_threshold_quantile = speed_threshold_quantile,
+        diagnostic_plots = collect_plots,
+        compute_uncertainty = compute_uncertainty,
+        direction = "backward",
+        min_candidates = min_candidates
+      )
+      
+      candidates <- res$features_df
+      
+      # If no candidates, stop
+      if (nrow(candidates) == 0) {
+        message("No more candidates at step ", step_counter, " for group ", group_id)
+        break
+      }
+      
+      # Pick the top-ranked feasible candidate
+      winner <- candidates |>
+        filter(!is.na(rank)) |>
+        arrange(rank) |>
+        slice(1)
+      
+      # If no feasible winner, stop
+      if (nrow(winner) == 0) {
+        message("No feasible candidates at step ", step_counter, " for group ", group_id)
+        break
+      }
+      
+      winner_segment <- winner$segment
+      
+      # Log decision
+      decision_log[[step_counter]] <- tibble(
+        step = step_counter,
+        chosen_segment = winner_segment,
+        rank = winner$rank,
+        log_liklihood = winner$log_liklihood,
+        residual_gap = winner$residual_gap,
+        delta_t = winner$delta_t,
+        sigma_t = winner$sigma_t,
+        theoretical_velocity = winner$theoretical_velocity,
+        tracking_group = group_id
+      )
+      
+      # Collect plots if requested
+      if (collect_plots) {
+        per_step_plots[[length(per_step_plots) + 1]] <- list(
+          diagnostic_plot = res$diagnostic_plot,
+          spatial_plot = res$spatial_plot,
+          group_id = group_id
+        )
+      }
+      
+      # Add winner segment to the BEGINNING of current track (backwards)
+      new_segment_data <- group_data |> filter(segment == winner_segment)
+      current_track <- bind_rows(new_segment_data, current_track)
+      
+      message("  Step ", step_counter, ": added segment ", winner_segment, 
+              " (prob = ", round(winner$log_liklihood, 3), ")")
+    }
+    
+    # Store results for this group
+    all_tracks[[group_id]] <- current_track
+    if (length(decision_log)) {
+      all_decisions[[group_id]] <- bind_rows(decision_log)
+    }
+    all_plots <- c(all_plots, per_step_plots)
+  }
+  
+  # Step 3: Combine all groups
+  combined_track <- bind_rows(all_tracks) |> arrange(time)
+  combined_decisions <- if (length(all_decisions)) {
+    bind_rows(all_decisions) |> arrange(tracking_group, step)
+  } else {
+    tibble()
+  }
+  
+  list(
+    track = combined_track,
+    decisions = combined_decisions,
+    plots = all_plots,
+    n_groups = n_groups
+  )
+}
+```
+
+## 7. Post-Processing
+
+### 7.1 Trajectory Smoothing
+
+**Purpose**: Apply signal processing filters to reduce noise in reconstructed trajectories.
+
+**Methods available**:
+
+**1. Savitzky-Golay filtering** (default): - Fits local polynomials of degree `p` (default: 3) over window of size `n` - Preserves higher moments (velocity, acceleration) better than moving average - Excellent for smooth biological movement
+
+**2. Moving average**: - Simple rolling mean over window of size `n` - More aggressive smoothing, may dampen rapid movements
+
+**Window size**: Auto-calculated as `fps/2` (0.5 second window) if not specified, ensuring temporal scale matches data sampling rate.
+
+**Implementation**: 1. Estimate frame rate from median time differences 2. Interpolate NAs in reconstructed trajectory 3. Apply selected smoothing filter 4. Join smoothed coordinates back to original data
+
+**Output**: Original data with added columns `x_smooth` and `y_smooth`.
+
+```{r smooth-track}
+smooth_track <- function(df, method = "savitzky_golay", n = "not_specified", p = 3) {
+  # Estimate frame rate and determine window size
+  if (n == "not_specified") {
+    time_diffs <- diff(df$time[!is.na(df$time)])
+    median_dt <- median(time_diffs, na.rm = TRUE)
+    fps <- 1 / median_dt
+    n <- round(fps / 2)  # Half second window
+    if (n %% 2 == 0) n <- n + 1  # Make odd
+  }
+  
+  # Check if we have enough reconstructed data to smooth
+  valid_data <- df |> filter(!is.na(x_reconstructed), !is.na(y_reconstructed))
+  if (nrow(valid_data) < n) {
+    warning("Not enough reconstructed data points to smooth")
+    return(df |> mutate(x_smooth = NA_real_, y_smooth = NA_real_))
+  }
+  
+  # Prepare data: interpolate NAs
+  df_smoothed <- df |> 
+    mutate(x_filled = zoo::na.approx(x_reconstructed, na.rm = FALSE),
+           y_filled = zoo::na.approx(y_reconstructed, na.rm = FALSE)) |> 
+    filter(!is.na(x_filled), !is.na(y_filled))
+  
+  # Apply the selected smoothing method
+  if (method == "savitzky_golay") {
+    df_smoothed <- df_smoothed |>
+      mutate(
+        x_smooth = signal::sgolayfilt(x_filled, p = p, n = n),
+        y_smooth = signal::sgolayfilt(y_filled, p = p, n = n)
+      )
+  } else if (method == "moving_average") {
+    df_smoothed <- df_smoothed |>
+      mutate(
+        x_smooth = zoo::rollmean(x_filled, k = n, fill = NA, align = "center"),
+        y_smooth = zoo::rollmean(y_filled, k = n, fill = NA, align = "center")
+      )
+  } else {
+    stop(sprintf("Unknown smoothing method '%s'. Use 'savitzky_golay' or 'moving_average'", method))
+  }
+  
+  # Join back to original data
+  df <- left_join(df, df_smoothed |> select(time, x_smooth, y_smooth), by = "time")
+  return(df)
+}
+```
+
+## 8. Multi-Individual Pipeline
+
+### 8.1 Interactive Plot Viewer
+
+**Purpose**: Launch an interactive Shiny gadget to browse diagnostic plots chronologically.
+
+**Features**: - **Keyboard navigation**: Use arrow keys (← →) to navigate between steps - **Button controls**: Click "Prev" or "Next" buttons - **Dual display**: Shows both diagnostic and spatial plots side-by-side - **Chronological ordering**: Plots sorted by segment time (handles backward + forward propagation) - **Step counter**: Shows current position (X / N total plots)
+
+**Implementation details**: - Sorts plots chronologically regardless of propagation direction - Extracts segment timing from plot metadata - Uses Plotly for interactive tooltips - Full-screen gadget viewer (1800×900 pixels) - Accepts output directly from `process_multi_individual()`
+
+**Parameters**: - `results`: Output from `process_multi_individual()` (list with `$tracks` and `$plots`) - `individual_number`: Integer for specific individual, or "all" to view all individuals (default: 1)
+
+```{r check-spline-fits}
+check_spline_fits <- function(results, individual_number = 1) {
+  # Validate input
+  if (!is.list(results) || !"plots" %in% names(results)) {
+    stop("Input must be the output from process_multi_individual() with diagnostic_plots = TRUE")
+  }
+  
+  if (is.null(results$plots) || length(results$plots) == 0) {
+    stop("No plots found. Make sure diagnostic_plots = TRUE when running process_multi_individual()")
+  }
+  
+  # Extract plots based on individual_number
+  if (identical(individual_number, "all")) {
+    # Combine plots from all individuals
+    all_plots <- unlist(lapply(results$plots, function(ind_plots) {
+      c(ind_plots$backward, ind_plots$forward)
+    }), recursive = FALSE)
+    
+    if (length(all_plots) == 0) {
+      stop("No plots available for any individual")
+    }
+    
+    plots <- all_plots
+  } else {
+    # Extract plots for specific individual
+    if (!is.numeric(individual_number) || individual_number < 1 || 
+        individual_number > length(results$plots)) {
+      stop(sprintf("individual_number must be between 1 and %d, or 'all'", 
+                   length(results$plots)))
+    }
+    
+    ind_plots <- results$plots[[individual_number]]
+    if (is.null(ind_plots)) {
+      stop(sprintf("No plots found for individual %d", individual_number))
+    }
+    
+    # Combine backward and forward plots for this individual
+    plots <- c(ind_plots$backward, ind_plots$forward)
+  }
+  
+  stopifnot(length(plots) >= 1)
+  
+  # Sort plots chronologically by minimum time from all displayed data
+  # This ensures backward and forward propagation steps display in temporal order
+  plots <- plots[order(sapply(plots, function(p) {
+    if (!is.null(p$diagnostic_plot)) {
+      # Extract minimum time from ggplot layers (data_for_spline is first layer)
+      tryCatch({
+        # Get all time values from all layers in the ggplot
+        all_times <- unlist(lapply(p$diagnostic_plot$layers, function(layer) {
+          layer_data <- layer$data
+          if (!is.null(layer_data) && "time" %in% names(layer_data)) {
+            return(layer_data$time)
+          }
+          return(NULL)
+        }))
+        if (length(all_times) > 0) {
+          return(min(all_times, na.rm = TRUE))
+        }
+      }, error = function(e) {
+        return(Inf)  # Put problematic plots at the end
+      })
+    }
+    return(Inf)  # Fallback: put plots without data at the end
+  }))]
+
+  ui <- miniUI::miniPage(
+    miniUI::gadgetTitleBar("Diagnostic Plot Viewer (use ← and → arrow keys)"),
+    miniUI::miniContentPanel(
+      shiny::fillRow(
+        flex = c(1, 1),
+        shiny::uiOutput("plot_container_diag"),
+        shiny::uiOutput("plot_container_spatial")
+      ),
+      shiny::div(
+        shiny::actionButton("btn_prev", "← Prev"),
+        shiny::actionButton("btn_next", "Next →"),
+        shiny::htmlOutput("idx_label"),
+        style = "display:flex;gap:8px;align-items:center;"
+      ),
+      shiny::tags$script(
+        shiny::HTML(
+          "document.addEventListener('keydown', function(e){
+            if(e.key==='ArrowLeft'){ Shiny.setInputValue('nav','prev', {priority:'event'}); }
+            if(e.key==='ArrowRight'){ Shiny.setInputValue('nav','next', {priority:'event'}); }
+          });"
+        )
+      )
+    )
+  )
+
+  server <- function(input, output, session) {
+    n <- length(plots)
+    i <- shiny::reactiveVal(1L)
+    step <- function(d) i(max(1L, min(n, i() + d)))
+
+    shiny::observeEvent(input$btn_prev, step(-1))
+    shiny::observeEvent(input$btn_next, step(+1))
+    shiny::observeEvent(input$nav, ignoreInit = TRUE, {
+      if (identical(input$nav, "prev")) step(-1)
+      else if (identical(input$nav, "next")) step(+1)
+    })
+
+    output$idx_label <- shiny::renderText(sprintf("<b>%d / %d</b>", i(), n))
+    output$plot_container_diag <- shiny::renderUI(plotly::plotlyOutput("p_diag", height = "700px"))
+    output$plot_container_spatial <- shiny::renderUI(plotly::plotlyOutput("p_spatial", height = "700px"))
+
+    output$p_diag <- plotly::renderPlotly({
+      p <- plotly::ggplotly(plots[[i()]]$diagnostic_plot, tooltip = "text")
+      idx <- which(vapply(p$x$data, function(tr) !is.null(tr$text), logical(1)))
+      if (length(idx)) {
+        for (j in idx) {
+          p$x$data[[j]]$textposition <- "top center"
+          p$x$data[[j]]$y <- p$x$data[[j]]$y + 0
+        }
+      }
+      p
+    })
+
+    output$p_spatial <- plotly::renderPlotly({
+      p <- plotly::ggplotly(plots[[i()]]$spatial_plot, tooltip = "text")
+      idx <- which(vapply(p$x$data, function(tr) !is.null(tr$text), logical(1)))
+      if (length(idx)) {
+        for (j in idx) {
+          p$x$data[[j]]$textposition <- "top center"
+          p$x$data[[j]]$y <- p$x$data[[j]]$y + 0
+        }
+      }
+      p
+    })
+
+    shiny::observeEvent(input$done, { shiny::stopApp(invisible(i())) })
+  }
+
+  shiny::runGadget(
+    ui, server,
+    viewer = shiny::dialogViewer("Diagnostic Plot Viewer", width = 1800, height = 900)
+  )
+}
+```
+
+### 8.2 Batch Processing Wrapper
+
+**Purpose**: Process multiple tracked individuals in a single function call, handling the complete reconstruction pipeline for each.
+
+**Input format**: Expects data with columns: - `time`: Timestamp - `x1, y1, x2, y2, ..., xN, yN`: Coordinates for N individuals
+
+**Pipeline stages** (per individual):
+
+1.  **Extract individual data**: Subset columns for specific individual
+2.  **Segmentation**: Detect jumps and assign segments
+3.  **Gap analysis**: Identify large tracking gaps (\> window)
+4.  **Ground truth selection**: Find longest reliable segment
+5.  **Forward propagation**: Link segments after ground truth
+6.  **Backward propagation**: Link segments before ground truth
+7.  **Combine bidirectional results**: Merge forward, ground truth, and backward tracks
+8.  **Smoothing**: Apply Savitzky-Golay filter to final trajectory
+
+**Output**: Combined data frame with columns: - `time`: Timestamp - `x_original, y_original`: Original raw coordinates - `x_reconstructed, y_reconstructed`: Gap-filled coordinates - `x_smooth, y_smooth`: Smoothed final coordinates - `segment`: Segment ID - `individual_number`: Individual identifier (1 to N)
+
+**Progress reporting**: Provides detailed console output for each processing stage, including: - Individual progress (X/N) - Detected gaps - Ground truth segment ID - Number of isolated tracking groups - Completion status
+
+```{r process-multi-individual}
+process_multi_individual <- function(df_raw, 
+                                    window = 20,
+                                    speed_threshold_quantile = 0.999,
+                                    smooth_method = "savitzky_golay",
+                                    smooth_window = "not_specified",
+                                    min_movement = 500,
+                                    diagnostic_plots = FALSE,
+                                    min_candidates = 5) {
+  
+  # Detect number of individuals from column names
+  x_cols <- grep("^x\\d+$", names(df_raw), value = TRUE)
+  n_individuals <- length(x_cols)
+  
+  if (n_individuals == 0) {
+    stop("No individual columns found. Expected columns like x1, y1, x2, y2, etc.")
+  }
+  
+  cat(sprintf("Processing %d individual(s)...\n", n_individuals))
+  
+  # Initialize lists to store results
+  all_tracks <- list()
+  all_plots <- list()
+  
+  # Process each individual
+  for (i in 1:n_individuals) {
+    cat(sprintf("\n=== Processing Individual %d/%d ===\n", i, n_individuals))
+    
+    # Extract individual's data
+    x_col <- paste0("x", i)
+    y_col <- paste0("y", i)
+    
+    df_individual <- df_raw |>
+      select(time, x = all_of(x_col), y = all_of(y_col))
+    
+    # Step 1: Detect jumps and segment
+    cat("  Step 1/6: Detecting jumps and segmenting...\n")
+    df_jump <- detect_jumps(df_individual)
+    df_seg <- assign_segments(df_jump)
+    
+    # Check for large tracking gaps
+    gaps <- identify_tracking_gaps(df_seg, window = window)
+    if (nrow(gaps) > 0) {
+      cat(sprintf("  Found %d large gap(s) in tracking (> %s seconds)\n", nrow(gaps), window))
+      for (g in seq_len(nrow(gaps))) {
+        cat(sprintf("    Gap %d: %.1fs (between seg %d and %d)\n", 
+                    g, gaps$gap_duration[g], gaps$segment_before[g], gaps$segment_after[g]))
+      }
+    }
+    
+    # Step 2: Find ground truth segment
+    cat("  Step 2/6: Finding ground truth segment...\n")
+    ground_truth_segment <- tryCatch({
+      find_ground_truth_segment(df_seg, min_movement = min_movement)
+    }, error = function(e) {
+      warning(sprintf("Individual %d: Could not find ground truth segment: %s", i, e$message))
+      return(NULL)
+    })
+    
+    if (is.null(ground_truth_segment)) {
+      cat(sprintf("  Skipping individual %d (no valid ground truth segment)\n", i))
+      next
+    }
+    
+    cat(sprintf("  Ground truth segment: %d\n", ground_truth_segment))
+    
+    # Step 3: Forward propagation (gap-aware)
+    cat("  Step 3/6: Forward propagation (gap-aware)...\n")
+    res_forward <- suppressWarnings(propagate_forward_uncertainty(
+      df_all = df_seg,
+      ground_truth_segment = ground_truth_segment,
+      window = window,
+      speed_threshold_quantile = speed_threshold_quantile,
+      max_steps = 2000,
+      save_plots = diagnostic_plots,
+      min_candidates = min_candidates
+    ))
+    final_track_forward <- res_forward$track
+    if (res_forward$n_groups > 1) {
+      cat(sprintf("  Processed %d isolated tracking group(s)\n", res_forward$n_groups))
+    }
+    
+    # Step 4: Backward propagation (gap-aware)
+    cat("  Step 4/6: Backward propagation (gap-aware)...\n")
+    res_backward <- suppressWarnings(suppressMessages(propagate_backwards_uncertainty(
+      df_all = df_seg,
+      ground_truth_segment = ground_truth_segment,
+      window = window,
+      speed_threshold_quantile = speed_threshold_quantile,
+      max_steps = 2000,
+      collect_plots = diagnostic_plots,
+      min_candidates = min_candidates
+    )))
+    final_track_backward <- res_backward$track
+    
+    # Collect plots if requested
+    if (diagnostic_plots) {
+      all_plots[[i]] <- list(
+        forward = res_forward$plots,
+        backward = res_backward$plots,
+        individual = i
+      )
+    }
+    
+    # Step 5: Combine tracks
+    cat("  Step 5/6: Combining tracks...\n")
+    complete_track <- bind_rows(
+      final_track_backward |> filter(segment != ground_truth_segment),
+      df_seg |> filter(segment == ground_truth_segment),
+      final_track_forward |> filter(segment != ground_truth_segment)
+    ) |>
+      arrange(time)
+    
+    # Merge with original data
+    output_track <- df_individual |>
+      select(time, x, y) |>
+      rename(x_original = x, y_original = y) |>
+      left_join(complete_track |> select(time, x, y, segment), 
+                by = "time",
+                suffix = c("_original", "_reconstructed")) |>
+      rename(x_reconstructed = x, y_reconstructed = y)
+    
+    # Step 6: Smooth
+    cat(sprintf("  Step 6/6: Smoothing (%s)...\n", smooth_method))
+    output_track <- tryCatch({
+      smooth_track(output_track, method = smooth_method, n = smooth_window)
+    }, error = function(e) {
+      warning(sprintf("Smoothing failed: %s. Skipping smoothing.", e$message))
+      output_track |> mutate(x_smooth = NA_real_, y_smooth = NA_real_)
+    })
+    
+    # Add individual identifier
+    output_track <- output_track |>
+      mutate(individual_number = i)
+    
+    # Store in list
+    all_tracks[[i]] <- output_track
+    
+    cat(sprintf("  ✓ Individual %d complete (%d points)\n", i, nrow(output_track)))
+  }
+  
+  # Combine all individuals
+  if (length(all_tracks) == 0) {
+    stop("No individuals were successfully processed")
+  }
+  
+  cat(sprintf("\n=== Combining %d individual(s) ===\n", length(all_tracks)))
+  combined_tracks <- bind_rows(all_tracks)
+  
+  cat(sprintf("✓ Multi-individual processing complete: %d total points\n", nrow(combined_tracks)))
+  
+  # Return results with optional plots
+  result <- list(
+    tracks = combined_tracks
+  )
+  
+  if (diagnostic_plots) {
+    result$plots <- all_plots
+  }
+  
+  return(result)
+}
+```
+
+## 9. Video Overlay
+
+### 9.1 Create Overlaid Video
+
+**Purpose**: Generate a video with all reconstructed tracks overlaid on the original tracking footage simultaneously.
+
+**Method**: Creates an ASS subtitle file with position markers for all individuals (both original and reconstructed/smoothed tracks), then uses ffmpeg to burn them into the video.
+
+**Requirements**: - ffmpeg and ffprobe must be installed and available in PATH - Video file must be accessible (.mkv or .mp4 format)
+
+**Features**: - Multi-individual visualisation (all tracks overlaid simultaneously) - Dual-track per individual (original + reconstructed/smoothed) - Automatic video property detection (resolution, frame rate) - Unique colour per individual - Frame-accurate overlay using ASS subtitles
+
+**Output**: Creates overlaid video in the same directory as the input video.
+
+```{r overlay-track-on-video}
+overlay_track_on_video <- function(tracks_df, video_path, 
+                                   output_name = "overlaid.mp4",
+                                   dot_size = 18,
+                                   use_smoothed = TRUE) {
+  
+  # Convert to Path object and validate
+  video_path <- normalizePath(video_path, mustWork = TRUE)
+  video_dir <- dirname(video_path)
+  output_path <- file.path(video_dir, output_name)
+  ass_path <- file.path(video_dir, "overlay.ass")
+  
+  # Define colour palette for individuals (BBGGRR format)
+  # Each individual gets a bright colour for reconstructed and dark colour for original
+  colour_palette_bright <- c(
+    "&H0000FF&",  # Bright Red
+    "&H00FF00&",  # Bright Green
+    "&HFF0000&",  # Bright Blue
+    "&H00FFFF&",  # Bright Yellow
+    "&HFF00FF&",  # Bright Magenta
+    "&HFFFF00&",  # Bright Cyan
+    "&H0080FF&",  # Bright Orange
+    "&HFF0080&",  # Bright Purple
+    "&H00FF80&",  # Bright Spring green
+    "&H80FF00&"   # Bright Chartreuse
+  )
+  
+  colour_palette_dark <- c(
+    "&H000080&",  # Dark Red
+    "&H008000&",  # Dark Green
+    "&H800000&",  # Dark Blue
+    "&H008080&",  # Dark Yellow/Olive
+    "&H800080&",  # Dark Magenta
+    "&H808000&",  # Dark Cyan/Teal
+    "&H004080&",  # Dark Orange
+    "&H800040&",  # Dark Purple
+    "&H008040&",  # Dark Spring green
+    "&H408000&"   # Dark Chartreuse
+  )
+  
+  # Helper: Convert seconds to ASS timestamp format (H:MM:SS.CS)
+  seconds_to_ass_time <- function(t) {
+    hours <- floor(t / 3600)
+    remainder <- t %% 3600
+    minutes <- floor(remainder / 60)
+    seconds <- floor(remainder %% 60)
+    centiseconds <- round((t - floor(t)) * 100)
+    sprintf("%d:%02d:%02d.%02d", hours, minutes, seconds, centiseconds)
+  }
+  
+  # Get video properties using ffprobe
+  get_video_properties <- function(video_path) {
+    # Get resolution
+    cmd_res <- sprintf(
+      'ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of default=noprint_wrappers=1:nokey=1 "%s"',
+      video_path
+    )
+    result_res <- system(cmd_res, intern = TRUE)
+    if (length(result_res) != 2) stop("Failed to get video resolution")
+    
+    # Get frame rate (r_frame_rate returns as fraction like "30/1")
+    cmd_fps <- sprintf(
+      'ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate -of default=noprint_wrappers=1:nokey=1 "%s"',
+      video_path
+    )
+    result_fps <- system(cmd_fps, intern = TRUE)
+    
+    # Parse frame rate (handle fraction format like "30/1" or "30000/1001")
+    fps_parts <- strsplit(result_fps, "/")[[1]]
+    if (length(fps_parts) == 2) {
+      fps <- as.numeric(fps_parts[1]) / as.numeric(fps_parts[2])
+    } else {
+      fps <- as.numeric(result_fps)
+    }
+    
+    list(
+      width = as.integer(result_res[1]), 
+      height = as.integer(result_res[2]),
+      frame_rate = fps
+    )
+  }
+  
+  cat("Getting video properties...\n")
+  video_props <- get_video_properties(video_path)
+  cat(sprintf("  Resolution: %dx%d\n", video_props$width, video_props$height))
+  cat(sprintf("  Frame rate: %.2f fps\n", video_props$frame_rate))
+  
+  # Check for individual_number column
+  if (!"individual_number" %in% names(tracks_df)) {
+    stop("tracks_df must have an 'individual_number' column")
+  }
+  
+  n_individuals <- max(tracks_df$individual_number, na.rm = TRUE)
+  cat(sprintf("Processing %d individual(s)...\n", n_individuals))
+  
+  # Determine which reconstructed track to use
+  recon_x_col <- if (use_smoothed && "x_smooth" %in% names(tracks_df)) "x_smooth" else "x_reconstructed"
+  recon_y_col <- if (use_smoothed && "y_smooth" %in% names(tracks_df)) "y_smooth" else "y_reconstructed"
+  
+  track_clean <- tracks_df |>
+    filter(!is.na(time), !is.na(individual_number)) |>
+    arrange(time, individual_number) |>
+    rename(
+      recon_x = all_of(recon_x_col),
+      recon_y = all_of(recon_y_col)
+    )
+  
+  if (nrow(track_clean) == 0) {
+    stop("No valid track data (all time values are NA)")
+  }
+  
+  max_time <- max(track_clean$time)
+  
+  cat(sprintf("Generating ASS subtitle file (using %s track)...\n", 
+              if(use_smoothed && "x_smooth" %in% names(tracks_df)) "smoothed" else "reconstructed"))
+  
+  # ASS file header
+  ass_header <- c(
+    "[Script Info]",
+    "ScriptType: v4.00+",
+    sprintf("PlayResX: %d", video_props$width),
+    sprintf("PlayResY: %d", video_props$height),
+    "",
+    "[V4+ Styles]",
+    "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+    sprintf("Style: Default,Arial,%d,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,1,0,7,0,0,0,0", dot_size),
+    "",
+    "[Events]",
+    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
+  )
+  
+  # Generate dialogue lines for each track point (all individuals)
+  ass_events <- c()
+  
+  for (i in 1:nrow(track_clean)) {
+    row <- track_clean[i, ]
+    start_time <- seconds_to_ass_time(row$time)
+    end_time <- seconds_to_ass_time(row$time + 1/video_props$frame_rate)
+    
+    # Get colours for this individual (cycle through palette)
+    ind_bright <- colour_palette_bright[((row$individual_number - 1) %% length(colour_palette_bright)) + 1]
+    ind_dark <- colour_palette_dark[((row$individual_number - 1) %% length(colour_palette_dark)) + 1]
+    
+    # Original track (if exists) - dark colour
+    if (!is.na(row$x_original) && !is.na(row$y_original)) {
+      ass_events <- c(ass_events, sprintf(
+        "Dialogue: 0,%s,%s,Default,,0,0,0,,{\\an5\\pos(%.1f,%.1f)\\fs%d\\c%s}●",
+        start_time, end_time, row$x_original, row$y_original, dot_size, ind_dark
+      ))
+    }
+    
+    # Reconstructed/smoothed track (if exists) - bright colour
+    if (!is.na(row$recon_x) && !is.na(row$recon_y)) {
+      ass_events <- c(ass_events, sprintf(
+        "Dialogue: 0,%s,%s,Default,,0,0,0,,{\\an5\\pos(%.1f,%.1f)\\fs%d\\c%s}●",
+        start_time, end_time, row$recon_x, row$recon_y, dot_size, ind_bright
+      ))
+    }
+  }
+  
+  # Write ASS file
+  writeLines(c(ass_header, ass_events), ass_path)
+  cat(sprintf("ASS file created: %s\n", ass_path))
+  
+  # Run ffmpeg to overlay subtitles
+  cat("Running ffmpeg to create overlaid video...\n")
+  ffmpeg_cmd <- sprintf(
+    'ffmpeg -y -i "%s" -vf "subtitles=%s" -c:a copy -c:v libx264 -preset fast -crf 23 -t %.2f "%s"',
+    video_path, ass_path, max_time, output_path
+  )
+  
+  result <- system(ffmpeg_cmd)
+  
+  # Clean up ASS file
+  unlink(ass_path)
+  
+  if (result == 0) {
+    cat(sprintf("\n✓ Overlay complete: %s\n", output_path))
+    cat(sprintf("  %d individuals overlaid with unique colours\n", n_individuals))
+    cat(sprintf("  Original tracks: dark shade | Reconstructed: bright shade\n"))
+    cat(sprintf("  Reconstructed tracks: full opacity (alpha: %s)\n", reconstructed_alpha))
+    return(invisible(output_path))
+  } else {
+    stop("ffmpeg failed to create overlaid video")
+  }
+}
+```
+
+------------------------------------------------------------------------
+
+# Example Usage
+
+## Data Loading and Processing
+
+This section demonstrates the complete pipeline on multi-individual tracking data from idtrackerai.
+
+```{r process-multi-example}
+# Load tracking data
+# Expected format: columns named time, x1, y1, x2, y2, x3, y3, etc.
+df_multi <- read_csv("/Volumes/Jacks_SSD3/2-tracking/session_b2d1t3_cam2_tank19/trajectories/trajectories_csv/trajectories.csv")
+
+# Process all individuals with uncertainty-weighted reconstruction
+# Set diagnostic_plots = TRUE to generate plots for interactive viewing
+results <- process_multi_individual(
+  df_raw = df_multi,
+  window = 20,                          # 20-second search window
+  min_candidates = 8, 
+  speed_threshold_quantile = 0.99999,   # Very permissive speed limit (99.999th percentile)
+  smooth_method = "savitzky_golay",     # Polynomial smoothing filter
+  min_movement = 500,                   # Minimum 500 pixels total movement for ground truth
+  diagnostic_plots = TRUE               # Generate diagnostic plots for visualization
+)
+
+# Extract the reconstructed tracks
+all_individuals <- results$tracks
+```
+
+## Visualisation
+
+Visualise reconstructed trajectories for quality assessment:
+
+```{r visualize-results}
+# Plot composite trajectory (X + Y) for Individual 3
+ggplot() +
+  # Original fragmented data (black points)
+  geom_point(
+    data = all_individuals |> filter(individual_number == 1),
+    aes(x = time, y = y_original + x_original),
+    alpha = 0.4, colour = "black", size = 0.5
+  ) +
+  # Reconstructed continuous trajectory (purple line)
+  geom_path(
+    data = all_individuals |> 
+      filter(individual_number == 1, !is.na(x_reconstructed)),
+    aes(x = time, y = x_reconstructed + y_reconstructed),
+    colour = "purple", linewidth = 0.6
+  ) +
+  labs(
+    title = "Uncertainty-Weighted Trajectory Reconstruction - Individual 3",
+    subtitle = "Bidirectional linking with Ornstein-Uhlenbeck uncertainty model",
+    x = "Time (seconds)",
+    y = "Composite Position (X + Y)",
+    caption = "Black points: original fragmented data | Purple line: reconstructed continuous trajectory"
+  ) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 10, colour = "gray30")
+  ) +
+  #coord_cartesian(xlim = c(1150, 1200))
+  coord_cartesian(xlim = c(40, 1250))
+```
+
+## Interactive Plot Viewer
+
+Launch the interactive viewer to browse through diagnostic plots from the reconstruction process:
+
+```{r launch-plot-viewer}
+# View diagnostic plots for a specific individual
+check_spline_fits(results, individual_number = 1)
+```
+
+**Usage tips**: - Use **arrow keys** (← →) or click buttons to navigate - **Hover** over candidate points to see detailed metrics - **Black circle** = selected candidate - **Black X** = infeasible (exceeds speed threshold) - Plots are automatically sorted by time (backward steps shown first)
+
+## Video Overlay
+
+Create a video with all reconstructed trajectories overlaid on the original tracking footage:
+
+```{r create-overlay-video}
+# Overlay all individuals simultaneously
+overlay_track_on_video(
+  tracks_df = all_individuals,  # Pass the full tracks data frame
+  video_path = '/Users/jlman6/Desktop/cleanRfishV2/cam22025-07-14 16-01-47.mkv',
+  output_name = "all_individuals_reconstructed.mp4",
+  use_smoothed = FALSE
+)
+```
+
+**Features**: - Each individual gets two colours: dark for original, bright for reconstructed - Original tracks displayed in darker shades (e.g., dark red, dark green) - Reconstructed/smoothed tracks displayed in bright shades (e.g., bright red, bright green) - 10 unique colour pairs available; automatically cycles for more individuals
+
+**Colour palette** (automatically assigned): 1. Red (dark/bright), 2. Green (dark/bright), 3. Blue (dark/bright), 4. Yellow (dark/bright), 5. Magenta (dark/bright), 6. Cyan (dark/bright), 7. Orange (dark/bright), 8. Purple (dark/bright), 9. Spring green (dark/bright), 10. Chartreuse (dark/bright)
+
+------------------------------------------------------------------------
+
+# Technical Notes
+
+## Computational Performance
+
+-   **Uncertainty model**: Vectorized bootstrap sampling provides 10-50× speedup
+-   **GAM fitting**: Adaptive basis dimension (k) prevents overfitting on short segments
+-   **Memory efficiency**: Group-wise processing reduces peak memory usage
+
+## Parameter Tuning Guidelines
+
+| Parameter | Default | Guidance |
+|------------------------|------------------------|------------------------|
+| `window` | 20s | Should match typical occlusion duration; too small = miss candidates; too large = spurious matches |
+| `min_candidates` | 5 | Minimum segments to consider; window auto-expands if needed (up to 5× original); ensures robust candidate selection |
+| `speed_threshold_quantile` | 0.999 | Higher = more permissive (useful for erratic movement); lower = stricter filtering |
+| `min_movement` | 500 units | Ensures ground truth has genuine locomotion; adjust based on arena size |
+| `z_thresh` | 3 | Standard deviations for jump detection; lower = more segments; higher = fewer |
+
+## Assumptions and Limitations
+
+**Assumptions**: - Movement is locally smooth (justifies spline extrapolation) - Uncertainty grows monotonically with time gap - Speed limits exist (biological feasibility) - Tracking errors manifest as jumps, not gradual drift
+
+**Limitations**: - Requires at least one reliable ground truth segment - Extrapolation quality degrades for gaps \> window/2 - Computationally intensive for very long trajectories (\> 500k points)
+
+## Future Improvements
+
+-   Bayesian inference for candidate selection (full posterior over trajectories)
+-   Adaptive uncertainty models that consider current velocity
+-   Robust mathematical backing for the likelihood calculation
+
+------------------------------------------------------------------------
+
+# References
+
+-   **GAM fitting**: Wood, S.N. (2017). *Generalized Additive Models: An Introduction with R*. Chapman and Hall/CRC.
+-   **Ornstein-Uhlenbeck process**: Uhlenbeck, G.E. & Ornstein, L.S. (1930). On the theory of the Brownian motion. *Physical Review*, 36(5), 823.
+-   **Savitzky-Golay filter**: Savitzky, A. & Golay, M.J.E. (1964). Smoothing and differentiation of data by simplified least squares procedures. *Analytical Chemistry*, 36(8), 1627-1639.
+
+------------------------------------------------------------------------
+
+*Pipeline developed for automated animal tracking reconstruction. For questions or issues, please refer to the project repository.*
