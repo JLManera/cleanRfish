@@ -522,11 +522,12 @@ generate_spatial_plot <- function(data_for_spline, plot_df_spatial, features_df,
     ggplot2::labs(x = "x", y = "y", 
          title = paste0("Uncertainty-weighted ", toupper(direction), " - Segment: ", current_seg_number, 
                         "\n", abs(current_seg_number - ground_truth_segment), " segments from ground truth")) +
+    ggplot2::scale_y_reverse() +
     ggplot2::theme_classic() +
     ggplot2::theme(legend.position = "none") +
     ggplot2::coord_fixed(ratio = 1,
-                ylim = c(min(c(data_for_spline$y, features_df[[paste0(coord_col, "_y")]]), na.rm = TRUE), 
-                         max(c(data_for_spline$y, features_df[[paste0(coord_col, "_y")]]), na.rm = TRUE)),
+                ylim = c(max(c(data_for_spline$y, features_df[[paste0(coord_col, "_y")]]), na.rm = TRUE),
+                         min(c(data_for_spline$y, features_df[[paste0(coord_col, "_y")]]), na.rm = TRUE)),
                 xlim = c(min(c(data_for_spline$x, features_df[[paste0(coord_col, "_x")]]), na.rm = TRUE), 
                          max(c(data_for_spline$x, features_df[[paste0(coord_col, "_x")]]), na.rm = TRUE)))
 }
@@ -1264,6 +1265,178 @@ process_multi_individual <- function(df_raw,
   return(result)
 }
 
+#' Smooth Multiple Tracked Individuals Without Reconstruction
+#'
+#' Applies smoothing to multi-individual tracking data without performing
+#' trajectory reconstruction. This is useful when the raw tracking data is
+#' already clean and only needs smoothing, or when you want to compare
+#' smoothed raw data against reconstructed data.
+#'
+#' @param df_raw Data frame with columns: time, x1, y1, x2, y2, etc.
+#' @param smooth_method Smoothing method: "savitzky_golay" or "moving_average" (default: "savitzky_golay")
+#' @param smooth_window Smoothing window size. If "not_specified", automatically calculated from frame rate.
+#' @return List with tracks data frame compatible with overlay_track_on_video()
+#' @export
+#' @examples
+#' \dontrun{
+#' # Load tracking data
+#' df <- read.csv("tracking_data.csv")
+#' 
+#' # Smooth without reconstruction
+#' result <- smooth_multi_individual(df)
+#' 
+#' # Create video overlay
+#' overlay_track_on_video(result$tracks, "video.mp4")
+#' }
+smooth_multi_individual <- function(df_raw,
+                                    smooth_method = "savitzky_golay",
+                                    smooth_window = "not_specified") {
+  # Ensure df_raw is a data frame
+  if (!is.data.frame(df_raw)) {
+    stop("df_raw must be a data frame")
+  }
+  
+  # Check for time column
+  if (!"time" %in% names(df_raw)) {
+    stop("df_raw must have a 'time' column")
+  }
+  
+  x_cols <- grep("^x\\d+$", names(df_raw), value = TRUE)
+  n_individuals <- length(x_cols)
+  
+  if (n_individuals == 0) {
+    stop("No individual columns found. Expected columns like x1, y1, x2, y2, etc.")
+  }
+  
+  cat(sprintf("Smoothing %d individual(s) (no reconstruction)...\n", n_individuals))
+  
+  all_tracks <- list()
+  
+  for (i in 1:n_individuals) {
+    cat(sprintf("\n=== Smoothing Individual %d/%d ===\n", i, n_individuals))
+    
+    x_col <- paste0("x", i)
+    y_col <- paste0("y", i)
+    
+    # Check that columns exist
+    if (!x_col %in% names(df_raw) || !y_col %in% names(df_raw)) {
+      warning(sprintf("Individual %d: Missing columns %s or %s, skipping", i, x_col, y_col))
+      next
+    }
+    
+    # Extract individual data
+    df_individual <- data.frame(
+      time = df_raw$time,
+      x = df_raw[[x_col]],
+      y = df_raw[[y_col]]
+    )
+    
+    # Create output structure with original data as "reconstructed" for compatibility
+    output_track <- data.frame(
+      time = df_individual$time,
+      x_original = df_individual$x,
+      y_original = df_individual$y,
+      x_reconstructed = df_individual$x,
+      y_reconstructed = df_individual$y,
+      segment = 1L
+    )
+    
+    cat(sprintf("  Smoothing (%s)...\n", smooth_method))
+    
+    # Calculate smooth window if not specified
+    n <- smooth_window
+    if (identical(n, "not_specified")) {
+      time_vals <- output_track$time[!is.na(output_track$time)]
+      if (length(time_vals) > 1) {
+        time_diffs <- diff(time_vals)
+        median_dt <- stats::median(time_diffs, na.rm = TRUE)
+        if (!is.na(median_dt) && median_dt > 0) {
+          fps <- 1 / median_dt
+          n <- round(fps / 2)
+          if (n %% 2 == 0) n <- n + 1
+          if (n < 3) n <- 3  # Minimum window size
+        } else {
+          n <- 15  # Default fallback
+        }
+      } else {
+        n <- 15  # Default fallback
+      }
+    }
+    
+    # Count valid data points
+    valid_mask <- !is.na(output_track$x_reconstructed) & !is.na(output_track$y_reconstructed)
+    n_valid <- sum(valid_mask)
+    
+    if (n_valid < n) {
+      warning(sprintf("Individual %d: Not enough data points to smooth (%d valid, need %d)", i, n_valid, n))
+      output_track$x_smooth <- NA_real_
+      output_track$y_smooth <- NA_real_
+    } else {
+      # Interpolate missing values
+      x_filled <- zoo::na.approx(output_track$x_reconstructed, na.rm = FALSE)
+      y_filled <- zoo::na.approx(output_track$y_reconstructed, na.rm = FALSE)
+      
+      # Create smoothed data frame with filled values
+      filled_mask <- !is.na(x_filled) & !is.na(y_filled)
+      
+      if (sum(filled_mask) < n) {
+        warning(sprintf("Individual %d: Not enough filled data points to smooth", i))
+        output_track$x_smooth <- NA_real_
+        output_track$y_smooth <- NA_real_
+      } else {
+        # Extract filled values
+        times_filled <- output_track$time[filled_mask]
+        x_filled_vals <- x_filled[filled_mask]
+        y_filled_vals <- y_filled[filled_mask]
+        
+        # Apply smoothing
+        if (smooth_method == "savitzky_golay") {
+          x_smooth_vals <- signal::sgolayfilt(x_filled_vals, p = 3, n = n)
+          y_smooth_vals <- signal::sgolayfilt(y_filled_vals, p = 3, n = n)
+        } else if (smooth_method == "moving_average") {
+          x_smooth_vals <- zoo::rollmean(x_filled_vals, k = n, fill = NA, align = "center")
+          y_smooth_vals <- zoo::rollmean(y_filled_vals, k = n, fill = NA, align = "center")
+        } else {
+          stop(sprintf("Unknown smoothing method '%s'. Use 'savitzky_golay' or 'moving_average'", smooth_method))
+        }
+        
+        # Create lookup for smoothed values
+        smooth_df <- data.frame(
+          time = times_filled,
+          x_smooth = x_smooth_vals,
+          y_smooth = y_smooth_vals
+        )
+        
+        # Merge back
+        output_track <- merge(output_track, smooth_df, by = "time", all.x = TRUE)
+      }
+    }
+    
+    output_track$individual_number <- i
+    
+    all_tracks[[i]] <- output_track
+    
+    cat(sprintf("  ✓ Individual %d complete (%d points)\n", i, nrow(output_track)))
+  }
+  
+  # Filter out NULL entries (skipped individuals)
+  all_tracks <- all_tracks[!sapply(all_tracks, is.null)]
+  
+  if (length(all_tracks) == 0) {
+    stop("No individuals were successfully processed")
+  }
+  
+  cat(sprintf("\n=== Combining %d individual(s) ===\n", length(all_tracks)))
+  combined_tracks <- do.call(rbind, all_tracks)
+  rownames(combined_tracks) <- NULL
+  
+  cat(sprintf("✓ Multi-individual smoothing complete: %d total points\n", nrow(combined_tracks)))
+  
+  result <- list(tracks = combined_tracks)
+  
+  return(result)
+}
+
 # 8. VIDEO OVERLAY ==============================================
 
 #' Convert Seconds to ASS Time Format
@@ -1588,15 +1761,26 @@ check_spline_fits <- function(results, individual_number = 1) {
     }
   }
   
-  # Sort plots by time, handling NULL diagnostic plots gracefully
+  # Sort plots by segment number from title
   plots <- plots[order(sapply(plots, function(p) {
-    if (!is.null(p$diagnostic_plot) && !is.null(p$diagnostic_plot$data) &&
-        length(p$diagnostic_plot$data) >= 2) {
-      tryCatch({
-        min_time <- min(c(p$diagnostic_plot$data[[1]]$time,
-                          p$diagnostic_plot$data[[2]]$time), na.rm = TRUE)
-        return(min_time)
-      }, error = function(e) Inf)
+    # Try to extract segment number from spatial plot title
+    if (!is.null(p$spatial_plot) && !is.null(p$spatial_plot$labels$title)) {
+      title <- p$spatial_plot$labels$title
+      # Extract segment number from "Segment: XX"
+      seg_match <- regmatches(title, regexpr("Segment: [0-9]+", title))
+      if (length(seg_match) > 0) {
+        seg_num <- as.numeric(sub("Segment: ", "", seg_match))
+        return(seg_num)
+      }
+    }
+    # Try diagnostic plot title as fallback
+    if (!is.null(p$diagnostic_plot) && !is.null(p$diagnostic_plot$labels$title)) {
+      title <- p$diagnostic_plot$labels$title
+      seg_match <- regmatches(title, regexpr("Segment: [0-9]+", title))
+      if (length(seg_match) > 0) {
+        seg_num <- as.numeric(sub("Segment: ", "", seg_match))
+        return(seg_num)
+      }
     }
     return(Inf)
   }))]

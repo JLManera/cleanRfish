@@ -20,7 +20,7 @@ overlay_track_on_video(
 
 \item{output_name}{Output video filename (default: "overlaid.mp4")}
 
-\item{output_location}{Optional directory path for output video. If NULL (default), saves to input video directory}
+\item{output_location}{Optional directory path for output video.}
 
 \item{dot_size}{Size of tracking dots (default: 18)}
 
