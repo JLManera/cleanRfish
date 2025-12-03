@@ -33,10 +33,10 @@ utils::globalVariables(c(
 #' @export
 detect_jumps <- function(df, z_thresh = 3) {
   df <- df |> 
-    arrange(time) |> 
-    mutate(jump_flag = ifelse(is.na(lag(x)) & is.na(lag(y)), TRUE, FALSE)) |>
-    filter(!is.na(x), !is.na(y)) |>
-    mutate(
+    dplyr::arrange(time) |> 
+    dplyr::mutate(jump_flag = ifelse(is.na(dplyr::lag(x)) & is.na(dplyr::lag(y)), TRUE, FALSE)) |>
+    dplyr::filter(!is.na(x), !is.na(y)) |>
+    dplyr::mutate(
       delta_x = x - dplyr::lag(x),
       delta_y = y - dplyr::lag(y),
       delta_t = time - dplyr::lag(time),
@@ -48,9 +48,9 @@ detect_jumps <- function(df, z_thresh = 3) {
     )
   
   df <- df |> mutate(
-    delta_theta = abs(direction - lag(direction)),
+    delta_theta = abs(direction - dplyr::lag(direction)),
     delta_theta = ifelse(delta_theta > pi, 2*pi - delta_theta, delta_theta),
-    delta_speed = abs(speed - lag(speed))
+    delta_speed = abs(speed - dplyr::lag(speed))
   )
   
   df <- df |> mutate(
@@ -106,23 +106,23 @@ get_speed_threshold <- function(df, prob = 0.999, eps = 1e-10) {
 identify_tracking_gaps <- function(df_all, window) {
   # Get time range for each segment
   segment_ranges <- df_all |>
-    group_by(segment) |>
-    summarise(
+    dplyr::group_by(segment) |>
+    dplyr::summarise(
       start_time = min(time),
       end_time = max(time),
       .groups = "drop"
     ) |>
-    arrange(start_time)
+    dplyr::arrange(start_time)
   
   # Calculate gaps between consecutive segments
   gaps <- segment_ranges |>
-    mutate(
-      next_start = lead(start_time),
-      segment_after = lead(segment),
+    dplyr::mutate(
+      next_start = dplyr::lead(start_time),
+      segment_after = dplyr::lead(segment),
       gap_duration = next_start - end_time
     ) |>
-    filter(!is.na(gap_duration), gap_duration > window, !is.na(segment_after)) |>
-    select(
+    dplyr::filter(!is.na(gap_duration), gap_duration > window, !is.na(segment_after)) |>
+    dplyr::select(
       gap_start = end_time,
       gap_end = next_start,
       gap_duration,
@@ -152,21 +152,21 @@ find_ground_truth_segment <- function(df, min_movement = 500, group_id = NULL) {
   }
   
   segment_summary <- df |> 
-    group_by(segment) |> 
-    summarise(
-      n_points = n(),
+    dplyr::group_by(segment) |> 
+    dplyr::summarise(
+      n_points = dplyr::n(),
       total_movement = sum(distance, na.rm = TRUE),
       .groups = "drop"
     ) |> 
-    filter(total_movement > min_movement) |> 
-    arrange(desc(n_points))
+    dplyr::filter(total_movement > min_movement) |> 
+    dplyr::arrange(dplyr::desc(n_points))
   
   if (nrow(segment_summary) == 0) {
     # If no segment meets movement threshold, just take the longest one
     segment_summary <- df |>
-      group_by(segment) |>
-      summarise(n_points = n(), .groups = "drop") |>
-      arrange(desc(n_points))
+      dplyr::group_by(segment) |>
+      dplyr::summarise(n_points = dplyr::n(), .groups = "drop") |>
+      dplyr::arrange(dplyr::desc(n_points))
   }
   
   # Select the segment with the longest duration and sufficient movement
@@ -189,35 +189,35 @@ identify_isolated_groups <- function(df_all, window) {
   if (nrow(gaps) == 0) {
     # No large gaps found - everything is one group
     df_all <- df_all |>
-      mutate(tracking_group = 1L)
+      dplyr::mutate(tracking_group = 1L)
     return(df_all)
   }
   
   # Get segment ranges
   segment_ranges <- df_all |>
-    group_by(segment) |>
-    summarise(
+    dplyr::group_by(segment) |>
+    dplyr::summarise(
       start_time = min(time),
       end_time = max(time),
       .groups = "drop"
     ) |>
-    arrange(start_time)
+    dplyr::arrange(start_time)
   
   # Assign groups based on gaps
   segment_ranges <- segment_ranges |>
-    mutate(tracking_group = 1L)
+    dplyr::mutate(tracking_group = 1L)
   
   current_group <- 1L
   for (i in seq_len(nrow(gaps))) {
     current_group <- current_group + 1L
     segment_after <- gaps$segment_after[i]
     segment_ranges <- segment_ranges |>
-      mutate(tracking_group = ifelse(segment >= segment_after, current_group, tracking_group))
+      dplyr::mutate(tracking_group = ifelse(segment >= segment_after, current_group, tracking_group))
   }
   
   # Join back to original data
   df_all <- df_all |>
-    left_join(segment_ranges |> select(segment, tracking_group), by = "segment")
+    dplyr::left_join(segment_ranges |> select(segment, tracking_group), by = "segment")
   
   return(df_all)
 }
@@ -238,9 +238,9 @@ compute_uncertainty_model <- function(df_all, window, n_boot = 10000) {
   # Step 1: Compute empirical uncertainty through bootstrap sampling
   # Filter segments with sufficient points upfront
   segment_counts <- df_all |>
-    group_by(segment) |>
-    summarise(n = n(), .groups = "drop") |>
-    filter(n >= 20)
+    dplyr::group_by(segment) |>
+    dplyr::summarise(n = dplyr::n(), .groups = "drop") |>
+    dplyr::filter(n >= 20)
   
   valid_segments <- segment_counts$segment
   
@@ -251,9 +251,9 @@ compute_uncertainty_model <- function(df_all, window, n_boot = 10000) {
   
   # Pre-filter and prepare data once
   seg_data <- df_all |>
-    filter(segment %in% valid_segments) |>
-    arrange(segment, time) |>
-    select(segment, time, x, y, speed, direction)
+    dplyr::filter(segment %in% valid_segments) |>
+    dplyr::arrange(segment, time) |>
+    dplyr::select(segment, time, x, y, speed, direction)
   
   # Pre-allocate result list
   results <- vector("list", length(valid_segments))
@@ -310,16 +310,16 @@ compute_uncertainty_model <- function(df_all, window, n_boot = 10000) {
   
   # Step 2: Summarise uncertainty by time gap
   uncertainty_summary <- empirical_uncertainty |>
-    group_by(time_gap) |>
-    summarise(
+    dplyr::group_by(time_gap) |>
+    dplyr::summarise(
       mean_positional = mean(positional_deviation, na.rm = TRUE),
       sd_positional = sd(positional_deviation, na.rm = TRUE),
       mean_speed = mean(speed_deviation, na.rm = TRUE),
       mean_direction = mean(directional_deviation, na.rm = TRUE),
-      n = n(),
+      n = dplyr::n(),
       .groups = "drop"
     ) |>
-    filter(n > 10)
+    dplyr::filter(n > 10)
   
   # Extract time gaps and observed standard deviations
   time_gap_vec <- uncertainty_summary$time_gap
