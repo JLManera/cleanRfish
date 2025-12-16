@@ -1,0 +1,342 @@
+{
+    "global_fragments": [
+        {
+            "fragments_identifiers": [95, 101, 100]
+        },
+        {
+            "fragments_identifiers": [102, 101, 100]
+        },
+        {
+            "fragments_identifiers": [103, 101, 100]
+        },
+        {
+            "fragments_identifiers": [104, 101, 100]
+        },
+        {
+            "fragments_identifiers": [95, 96, 97]
+        },
+        {
+            "fragments_identifiers": [101, 107, 100]
+        },
+        {
+            "fragments_identifiers": [108, 101, 107]
+        },
+        {
+            "fragments_identifiers": [87, 88, 92]
+        },
+        {
+            "fragments_identifiers": [87, 88, 91]
+        },
+        {
+            "fragments_identifiers": [87, 80, 88]
+        },
+        {
+            "fragments_identifiers": [87, 80, 84]
+        },
+        {
+            "fragments_identifiers": [109, 101, 107]
+        },
+        {
+            "fragments_identifiers": [86, 80, 84]
+        },
+        {
+            "fragments_identifiers": [110, 101, 107]
+        },
+        {
+            "fragments_identifiers": [83, 80, 74]
+        },
+        {
+            "fragments_identifiers": [82, 80, 74]
+        },
+        {
+            "fragments_identifiers": [73, 78, 74]
+        },
+        {
+            "fragments_identifiers": [110, 101, 111]
+        },
+        {
+            "fragments_identifiers": [110, 101, 113]
+        },
+        {
+            "fragments_identifiers": [73, 71, 67]
+        },
+        {
+            "fragments_identifiers": [63, 65, 67]
+        },
+        {
+            "fragments_identifiers": [63, 65, 64]
+        },
+        {
+            "fragments_identifiers": [63, 61, 64]
+        },
+        {
+            "fragments_identifiers": [60, 55, 58]
+        },
+        {
+            "fragments_identifiers": [110, 114, 113]
+        },
+        {
+            "fragments_identifiers": [59, 58, 55]
+        },
+        {
+            "fragments_identifiers": [110, 115, 114]
+        },
+        {
+            "fragments_identifiers": [0, 47, 55]
+        },
+        {
+            "fragments_identifiers": [0, 47, 55]
+        },
+        {
+            "fragments_identifiers": [0, 47, 52]
+        },
+        {
+            "fragments_identifiers": [0, 50, 47]
+        },
+        {
+            "fragments_identifiers": [0, 42, 47]
+        },
+        {
+            "fragments_identifiers": [0, 40, 41]
+        },
+        {
+            "fragments_identifiers": [0, 38, 39]
+        },
+        {
+            "fragments_identifiers": [119, 121, 122]
+        },
+        {
+            "fragments_identifiers": [0, 27, 28]
+        },
+        {
+            "fragments_identifiers": [122, 119, 124]
+        },
+        {
+            "fragments_identifiers": [125, 119, 124]
+        },
+        {
+            "fragments_identifiers": [0, 24, 4]
+        },
+        {
+            "fragments_identifiers": [0, 19, 4]
+        },
+        {
+            "fragments_identifiers": [0, 18, 4]
+        },
+        {
+            "fragments_identifiers": [125, 119, 127]
+        },
+        {
+            "fragments_identifiers": [0, 17, 4]
+        },
+        {
+            "fragments_identifiers": [125, 128, 119]
+        },
+        {
+            "fragments_identifiers": [0, 15, 4]
+        },
+        {
+            "fragments_identifiers": [131, 128, 119]
+        },
+        {
+            "fragments_identifiers": [0, 13, 4]
+        },
+        {
+            "fragments_identifiers": [128, 133, 119]
+        },
+        {
+            "fragments_identifiers": [128, 135, 119]
+        },
+        {
+            "fragments_identifiers": [0, 11, 4]
+        },
+        {
+            "fragments_identifiers": [128, 137, 119]
+        },
+        {
+            "fragments_identifiers": [0, 5, 4]
+        },
+        {
+            "fragments_identifiers": [0, 5, 4]
+        },
+        {
+            "fragments_identifiers": [0, 5, 4]
+        },
+        {
+            "fragments_identifiers": [0, 5, 4]
+        },
+        {
+            "fragments_identifiers": [0, 1, 4]
+        },
+        {
+            "fragments_identifiers": [128, 140, 119]
+        },
+        {
+            "fragments_identifiers": [128, 143, 119]
+        },
+        {
+            "fragments_identifiers": [128, 148, 119]
+        },
+        {
+            "fragments_identifiers": [128, 153, 119]
+        },
+        {
+            "fragments_identifiers": [0, 1, 2]
+        },
+        {
+            "fragments_identifiers": [128, 155, 119]
+        },
+        {
+            "fragments_identifiers": [128, 156, 119]
+        },
+        {
+            "fragments_identifiers": [128, 157, 119]
+        },
+        {
+            "fragments_identifiers": [159, 160, 119]
+        },
+        {
+            "fragments_identifiers": [161, 160, 119]
+        },
+        {
+            "fragments_identifiers": [161, 160, 163]
+        },
+        {
+            "fragments_identifiers": [161, 164, 163]
+        },
+        {
+            "fragments_identifiers": [166, 161, 163]
+        },
+        {
+            "fragments_identifiers": [166, 168, 163]
+        },
+        {
+            "fragments_identifiers": [174, 168, 163]
+        },
+        {
+            "fragments_identifiers": [176, 168, 163]
+        },
+        {
+            "fragments_identifiers": [178, 168, 163]
+        },
+        {
+            "fragments_identifiers": [178, 168, 179]
+        },
+        {
+            "fragments_identifiers": [182, 184, 183]
+        },
+        {
+            "fragments_identifiers": [184, 187, 183]
+        },
+        {
+            "fragments_identifiers": [184, 189, 183]
+        },
+        {
+            "fragments_identifiers": [184, 191, 183]
+        },
+        {
+            "fragments_identifiers": [184, 193, 183]
+        },
+        {
+            "fragments_identifiers": [184, 195, 183]
+        },
+        {
+            "fragments_identifiers": [184, 183, 196]
+        },
+        {
+            "fragments_identifiers": [184, 196, 183]
+        },
+        {
+            "fragments_identifiers": [184, 199, 183]
+        },
+        {
+            "fragments_identifiers": [184, 199, 183]
+        },
+        {
+            "fragments_identifiers": [211, 209, 183]
+        },
+        {
+            "fragments_identifiers": [211, 212, 183]
+        },
+        {
+            "fragments_identifiers": [215, 214, 183]
+        },
+        {
+            "fragments_identifiers": [216, 218, 183]
+        },
+        {
+            "fragments_identifiers": [222, 220, 218]
+        },
+        {
+            "fragments_identifiers": [222, 220, 218]
+        },
+        {
+            "fragments_identifiers": [226, 227, 218]
+        },
+        {
+            "fragments_identifiers": [226, 228, 218]
+        }
+    ],
+    "non_accumulable_global_fragments": [
+        {
+            "fragments_identifiers": [0, 22, 4]
+        },
+        {
+            "fragments_identifiers": [0, 31, 32]
+        },
+        {
+            "fragments_identifiers": [0, 36, 35]
+        },
+        {
+            "fragments_identifiers": [0, 42, 46]
+        },
+        {
+            "fragments_identifiers": [57, 58, 55]
+        },
+        {
+            "fragments_identifiers": [61, 62, 58]
+        },
+        {
+            "fragments_identifiers": [68, 65, 67]
+        },
+        {
+            "fragments_identifiers": [69, 70, 67]
+        },
+        {
+            "fragments_identifiers": [71, 72, 67]
+        },
+        {
+            "fragments_identifiers": [80, 81, 74]
+        },
+        {
+            "fragments_identifiers": [87, 93, 94]
+        },
+        {
+            "fragments_identifiers": [105, 101, 100]
+        },
+        {
+            "fragments_identifiers": [106, 101, 100]
+        },
+        {
+            "fragments_identifiers": [128, 151, 119]
+        },
+        {
+            "fragments_identifiers": [158, 159, 119]
+        },
+        {
+            "fragments_identifiers": [171, 168, 163]
+        },
+        {
+            "fragments_identifiers": [184, 203, 183]
+        },
+        {
+            "fragments_identifiers": [184, 206, 183]
+        },
+        {
+            "fragments_identifiers": [216, 217, 183]
+        },
+        {
+            "fragments_identifiers": [225, 226, 218]
+        }
+    ]
+}

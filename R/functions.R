@@ -30,7 +30,7 @@ utils::globalVariables(c(
 #' @param df Data frame with columns: time, x, y
 #' @param z_thresh Z-score threshold for jump detection (default: 3)
 #' @return Data frame with additional columns for jump detection metrics
-#' @export
+#' @keywords internal
 detect_jumps <- function(df, z_thresh = 3) {
   df <- df |> 
     dplyr::arrange(time) |> 
@@ -69,7 +69,7 @@ detect_jumps <- function(df, z_thresh = 3) {
 #'
 #' @param df Data frame with jump_flag column
 #' @return Data frame with segment column added
-#' @export
+#' @keywords internal
 assign_segments <- function(df){
   df <- df |> arrange(time)
   js <- df$jump_flag
@@ -87,7 +87,7 @@ assign_segments <- function(df){
 #' @param prob Quantile probability (default: 0.999)
 #' @param eps Small constant to prevent log(0) (default: 1e-10)
 #' @return Numeric speed threshold
-#' @export
+#' @keywords internal
 get_speed_threshold <- function(df, prob = 0.999, eps = 1e-10) {
   z <- log(pmax(df$speed, 0) + eps)
   exp(stats::quantile(z, probs = prob, na.rm = TRUE))
@@ -102,7 +102,7 @@ get_speed_threshold <- function(df, prob = 0.999, eps = 1e-10) {
 #' @param df_all Data frame with segment and time columns
 #' @param window Time window threshold for identifying gaps
 #' @return Data frame of identified gaps
-#' @export
+#' @keywords internal
 identify_tracking_gaps <- function(df_all, window) {
   # Get time range for each segment
   segment_ranges <- df_all |>
@@ -141,7 +141,7 @@ identify_tracking_gaps <- function(df_all, window) {
 #' @param min_movement Minimum total movement required (default: 500)
 #' @param group_id Optional tracking group ID to filter by
 #' @return Integer segment ID of ground truth segment
-#' @export
+#' @keywords internal
 find_ground_truth_segment <- function(df, min_movement = 500, group_id = NULL) {
   # Filter by group if specified
   if (!is.null(group_id)) {
@@ -181,7 +181,7 @@ find_ground_truth_segment <- function(df, min_movement = 500, group_id = NULL) {
 #' @param df_all Data frame with segment and time columns
 #' @param window Time window threshold
 #' @return Data frame with tracking_group column added
-#' @export
+#' @keywords internal
 identify_isolated_groups <- function(df_all, window) {
   # Get gaps
   gaps <- identify_tracking_gaps(df_all, window)
@@ -232,7 +232,7 @@ identify_isolated_groups <- function(df_all, window) {
 #' @param window Maximum time window to consider
 #' @param n_boot Number of bootstrap samples (default: 10000)
 #' @return Function that predicts uncertainty for a given time gap
-#' @export
+#' @keywords internal
 compute_uncertainty_model <- function(df_all, window, n_boot = 10000) {
   
   # Step 1: Compute empirical uncertainty through bootstrap sampling
@@ -374,7 +374,7 @@ compute_uncertainty_model <- function(df_all, window, n_boot = 10000) {
 #' @param residual_gap Spatial distance between prediction and observation
 #' @param sigma_t Time-dependent uncertainty
 #' @return Numeric log-likelihood score
-#' @export
+#' @keywords internal
 calculate_log_liklihood <- function(residual_gap, sigma_t) {
   -sigma_t - 0.5 * residual_gap
 }
@@ -544,7 +544,7 @@ generate_spatial_plot <- function(data_for_spline, plot_df_spatial, features_df,
 #' @param min_candidates Minimum candidates required (triggers window expansion)
 #' @param direction Either "forward" or "backward"
 #' @return Vector of candidate segment IDs
-#' @export
+#' @keywords internal
 get_candidate_segments <- function(df, time_interval, current_segment = NULL,
                                    min_candidates = 5, direction = "forward") {
   original_interval <- time_interval
@@ -605,7 +605,7 @@ get_candidate_segments <- function(df, time_interval, current_segment = NULL,
 #' @param direction Either "forward" or "backward"
 #' @param min_candidates Minimum candidates to consider (default: 5)
 #' @return List with features_df, diagnostic_plot, and spatial_plot
-#' @export
+#' @keywords internal
 rank_candidates_uncertainty <- function(current_track,
                                         df_all,
                                         window = 30,
@@ -780,15 +780,17 @@ rank_candidates_uncertainty <- function(current_track,
 #' @param max_steps Maximum iteration steps (default: 2000)
 #' @param save_plots Save diagnostic plots (default: FALSE)
 #' @param min_candidates Minimum candidates to consider (default: 5)
+#' @param use_temporal_priority Use temporal priority for multi-group ground truth selection (default: FALSE)
 #' @return List with track, decisions, plots, and n_groups
-#' @export
+#' @keywords internal
 propagate_forward_uncertainty <- function(df_all,
                                           ground_truth_segment,
                                           window = 30,
                                           speed_threshold_quantile = 0.9999,
                                           max_steps = 2000,
                                           save_plots = FALSE,
-                                          min_candidates = 5) {
+                                          min_candidates = 5,
+                                          use_temporal_priority = FALSE) {
 
   df_all <- identify_isolated_groups(df_all, window = window)
   
@@ -815,7 +817,11 @@ propagate_forward_uncertainty <- function(df_all,
       group_ground_truth_segment <- ground_truth_segment
     } else {
       group_ground_truth_segment <- tryCatch({
-        find_ground_truth_segment(df_all, group_id = group_id)
+        if (use_temporal_priority) {
+          find_first_ground_truth_segment(df_all, group_id = group_id)
+        } else {
+          find_ground_truth_segment(df_all, group_id = group_id)
+        }
       }, error = function(e) {
         return(NULL)
       })
@@ -919,15 +925,17 @@ propagate_forward_uncertainty <- function(df_all,
 #' @param max_steps Maximum iteration steps (default: 50)
 #' @param collect_plots Collect diagnostic plots (default: TRUE)
 #' @param min_candidates Minimum candidates to consider (default: 5)
+#' @param use_temporal_priority Use temporal priority for multi-group ground truth selection (default: FALSE)
 #' @return List with track, decisions, plots, and n_groups
-#' @export
+#' @keywords internal
 propagate_backwards_uncertainty <- function(df_all,
                                             ground_truth_segment,
                                             window = 30,
                                             speed_threshold_quantile = 0.9999,
                                             max_steps = 2000,
                                             collect_plots = TRUE,
-                                            min_candidates = 5) {
+                                            min_candidates = 5,
+                                            use_temporal_priority = FALSE) {
   
   df_all <- identify_isolated_groups(df_all, window = window)
   
@@ -954,7 +962,11 @@ propagate_backwards_uncertainty <- function(df_all,
       group_ground_truth_segment <- ground_truth_segment
     } else {
       group_ground_truth_segment <- tryCatch({
-        find_ground_truth_segment(df_all, group_id = group_id)
+        if (use_temporal_priority) {
+          find_first_ground_truth_segment(df_all, group_id = group_id)
+        } else {
+          find_ground_truth_segment(df_all, group_id = group_id)
+        }
       }, error = function(e) {
         return(NULL)
       })
@@ -1064,17 +1076,18 @@ propagate_backwards_uncertainty <- function(df_all,
 
 # 6. POST-PROCESSING ============================================
 
-#' Smooth Reconstructed Trajectory
+#' Smooth Reconstructed Trajectory (Internal)
 #'
 #' Apply Savitzky-Golay or moving average filter to reduce noise.
+#' This is an internal helper function used by the main processing functions.
 #'
 #' @param df Data frame with x_reconstructed and y_reconstructed columns
 #' @param method Either "savitzky_golay" or "moving_average"
 #' @param n Window size (default: "not_specified" for auto-calculation)
 #' @param p Polynomial order for Savitzky-Golay (default: 3)
 #' @return Data frame with x_smooth and y_smooth columns added
-#' @export
-smooth_track <- function(df, method = "savitzky_golay", n = "not_specified", p = 3) {
+#' @keywords internal
+smooth_single_track <- function(df, method = "savitzky_golay", n = "not_specified", p = 3) {
   if (n == "not_specified") {
     time_diffs <- diff(df$time[!is.na(df$time)])
     median_dt <- stats::median(time_diffs, na.rm = TRUE)
@@ -1118,12 +1131,16 @@ smooth_track <- function(df, method = "savitzky_golay", n = "not_specified", p =
 
 # 7. MULTI-INDIVIDUAL PIPELINE ==================================
 
-#' Process Multiple Tracked Individuals
+#' Process Multiple Tracked Individuals (Symmetrical Ground Truth Selection)
 #'
-#' Complete reconstruction pipeline for multi-individual tracking data.
+#' Complete reconstruction pipeline for multi-individual tracking data using
+#' symmetrical ground truth selection (selects the largest segment as anchor).
+#' For most use cases, clean_track() is recommended as it uses temporal priority
+#' which produces more accurate results.
 #'
 #' @param df_raw Data frame with columns: time, x1, y1, x2, y2, etc.
 #' @param window Search window size (default: 20)
+#' @param z_thresh Z-score threshold for jump detection (default: 3)
 #' @param speed_threshold_quantile Speed feasibility quantile (default: 0.999)
 #' @param smooth_method Smoothing method (default: "savitzky_golay")
 #' @param smooth_window Smoothing window size (default: "not_specified")
@@ -1132,8 +1149,9 @@ smooth_track <- function(df, method = "savitzky_golay", n = "not_specified", p =
 #' @param min_candidates Minimum candidates to consider (default: 5)
 #' @return List with tracks data frame and optionally plots list
 #' @export
-process_multi_individual <- function(df_raw,
+symmetrical_clean_track <- function(df_raw,
                                      window = 20,
+                                     z_thresh = 3,
                                      speed_threshold_quantile = 0.9999,
                                      smooth_method = "savitzky_golay",
                                      smooth_window = "not_specified",
@@ -1162,7 +1180,7 @@ process_multi_individual <- function(df_raw,
       dplyr::select(time, x = dplyr::all_of(x_col), y = dplyr::all_of(y_col))
     
     cat("  Step 1/6: Detecting jumps and segmenting...\n")
-    df_jump <- detect_jumps(df_individual)
+    df_jump <- detect_jumps(df_individual, z_thresh = z_thresh)
     df_seg <- assign_segments(df_jump)
     
     gaps <- identify_tracking_gaps(df_seg, window = window)
@@ -1221,7 +1239,9 @@ process_multi_individual <- function(df_raw,
       df_seg |> dplyr::filter(segment == ground_truth_segment),
       final_track_forward |> dplyr::filter(segment != ground_truth_segment)
     ) |>
-      dplyr::arrange(time)
+      dplyr::arrange(time) |>
+      # Remove duplicate time values (keep first occurrence)
+      dplyr::distinct(time, .keep_all = TRUE)
     
     output_track <- df_individual |>
       dplyr::select(time, x, y) |>
@@ -1233,7 +1253,227 @@ process_multi_individual <- function(df_raw,
     
     cat(sprintf("  Step 6/6: Smoothing (%s)...\n", smooth_method))
     output_track <- tryCatch({
-      smooth_track(output_track, method = smooth_method, n = smooth_window)
+      smooth_single_track(output_track, method = smooth_method, n = smooth_window)
+    }, error = function(e) {
+      warning(sprintf("Individual %d smoothing failed: %s", i, e$message))
+      output_track |> dplyr::mutate(x_smooth = NA_real_, y_smooth = NA_real_)
+    })
+    
+    output_track <- output_track |>
+      dplyr::mutate(individual_number = i)
+    
+    all_tracks[[i]] <- output_track
+    
+    cat(sprintf("  ✓ Individual %d complete (%d points)\n", i, nrow(output_track)))
+  }
+  
+  if (length(all_tracks) == 0) {
+    stop("No individuals were successfully processed")
+  }
+  
+  cat(sprintf("\n=== Combining %d individual(s) ===\n", length(all_tracks)))
+  combined_tracks <- dplyr::bind_rows(all_tracks)
+  
+  cat(sprintf("✓ Multi-individual processing complete: %d total points\n", nrow(combined_tracks)))
+  
+  result <- list(tracks = combined_tracks)
+  
+  if (diagnostic_plots) {
+    result$plots <- all_plots
+  }
+  
+  return(result)
+}
+
+#' Find First Ground Truth Segment (Temporal Priority)
+#'
+#' Identifies the first segment (temporally) that meets the criteria to be
+#' considered a ground truth segment. This differs from find_ground_truth_segment
+#' which selects the largest segment.
+#'
+#' @param df Data frame with segment, time, and distance columns
+#' @param min_movement Minimum cumulative movement required (default: 500)
+#' @param group_id Optional tracking group identifier
+#' @return Integer segment ID
+#' @keywords internal
+find_first_ground_truth_segment <- function(df, min_movement = 500, group_id = NULL) {
+  # Filter by group if specified
+  if (!is.null(group_id)) {
+    df <- df |> dplyr::filter(tracking_group == group_id)
+    if (nrow(df) == 0) {
+      stop(sprintf("No data found for tracking_group %d", group_id))
+    }
+  }
+  
+  segment_summary <- df |> 
+    dplyr::group_by(segment) |> 
+    dplyr::summarise(
+      n_points = dplyr::n(),
+      total_movement = sum(distance, na.rm = TRUE),
+      start_time = min(time),
+      .groups = "drop"
+    ) |> 
+    dplyr::filter(total_movement > min_movement) |> 
+    dplyr::arrange(start_time)  # Order by time instead of n_points
+  
+  if (nrow(segment_summary) == 0) {
+    # If no segment meets movement threshold, take the first one by time
+    segment_summary <- df |>
+      dplyr::group_by(segment) |>
+      dplyr::summarise(
+        n_points = dplyr::n(),
+        start_time = min(time),
+        .groups = "drop"
+      ) |>
+      dplyr::arrange(start_time)
+  }
+  
+  # Select the earliest segment (temporally) with sufficient movement
+  ground_truth_segment_id <- segment_summary$segment[1]
+  return(ground_truth_segment_id)
+}
+
+#' Process Multiple Individuals with Temporal Priority Ground Truth Selection
+#'
+#' The primary trajectory cleaning function for multi-individual tracking data.
+#' Uses the first (temporally) segment that meets criteria as the ground truth, 
+#' rather than the largest segment. This approach minimizes backward propagation 
+#' and prioritizes forward propagation, which tends to be more accurate.
+#'
+#' @param df_raw Data frame with columns: time, x1, y1, x2, y2, etc. for multiple individuals
+#' @param window Time window threshold for gap detection (seconds)
+#' @param z_thresh Z-score threshold for jump detection (default: 3)
+#' @param speed_threshold_quantile Quantile for maximum speed threshold (default: 0.9999)
+#' @param smooth_method Smoothing method: "savitzky_golay" or "moving_average" (default: "savitzky_golay")
+#' @param smooth_window Smoothing window size. If "not_specified", calculated from frame rate
+#' @param min_movement Minimum movement required for ground truth segment (default: 500)
+#' @param diagnostic_plots Whether to generate diagnostic plots (default: FALSE)
+#' @param min_candidates Minimum number of candidate segments to consider (default: 5)
+#' @return List containing:
+#'   \item{tracks}{Data frame with original, reconstructed, and smoothed coordinates}
+#'   \item{plots}{Diagnostic plots (if diagnostic_plots = TRUE)}
+#' @export
+#' @examples
+#' \dontrun{
+#' # Load tracking data with multiple individuals
+#' df <- read.csv("multi_track.csv")
+#' 
+#' # Process with temporal priority ground truth
+#' result <- clean_track(df, window = 20)
+#' 
+#' # Access reconstructed tracks
+#' tracks <- result$tracks
+#' 
+#' # With diagnostic plots
+#' result <- clean_track(df, window = 20, diagnostic_plots = TRUE)
+#' }
+clean_track <- function(df_raw,
+                                         window = 20,
+                                         z_thresh = 3,
+                                         speed_threshold_quantile = 0.9999,
+                                         smooth_method = "savitzky_golay",
+                                         smooth_window = "not_specified",
+                                         min_movement = 500,
+                                         diagnostic_plots = FALSE,
+                                         min_candidates = 5) {
+  x_cols <- grep("^x\\d+$", names(df_raw), value = TRUE)
+  n_individuals <- length(x_cols)
+  
+  if (n_individuals == 0) {
+    stop("No individual columns found. Expected columns like x1, y1, x2, y2, etc.")
+  }
+  
+  cat(sprintf("Processing %d individual(s) with temporal priority ground truth...\n", n_individuals))
+  
+  all_tracks <- list()
+  all_plots <- list()
+  
+  for (i in 1:n_individuals) {
+    cat(sprintf("\n=== Processing Individual %d/%d ===\n", i, n_individuals))
+    
+    x_col <- paste0("x", i)
+    y_col <- paste0("y", i)
+    
+    df_individual <- df_raw |>
+      dplyr::select(time, x = dplyr::all_of(x_col), y = dplyr::all_of(y_col))
+    
+    cat("  Step 1/6: Detecting jumps and segmenting...\n")
+    df_jump <- detect_jumps(df_individual, z_thresh = z_thresh)
+    df_seg <- assign_segments(df_jump)
+    
+    gaps <- identify_tracking_gaps(df_seg, window = window)
+    if (nrow(gaps) > 0) {
+      cat(sprintf("  Found %d large tracking gaps (> %s seconds)\n", nrow(gaps), window))
+    }
+    
+    cat("  Step 2/6: Finding first ground truth segment (temporal priority)...\n")
+    ground_truth_segment <- tryCatch({
+      find_first_ground_truth_segment(df_seg, min_movement = min_movement)
+    }, error = function(e) {
+      warning(sprintf("Individual %d: %s", i, e$message))
+      return(NULL)
+    })
+    
+    if (is.null(ground_truth_segment)) {
+      next
+    }
+    
+    cat(sprintf("  Ground truth segment: %d (first temporally)\n", ground_truth_segment))
+    
+    cat("  Step 3/6: Forward propagation (gap-aware)...\n")
+    res_forward <- suppressWarnings(propagate_forward_uncertainty(
+      df_all = df_seg,
+      ground_truth_segment = ground_truth_segment,
+      window = window,
+      speed_threshold_quantile = speed_threshold_quantile,
+      max_steps = 2000,
+      save_plots = diagnostic_plots,
+      min_candidates = min_candidates,
+      use_temporal_priority = TRUE
+    ))
+    final_track_forward <- res_forward$track
+    
+    cat("  Step 4/6: Backward propagation (gap-aware)...\n")
+    res_backward <- suppressWarnings(suppressMessages(propagate_backwards_uncertainty(
+      df_all = df_seg,
+      ground_truth_segment = ground_truth_segment,
+      window = window,
+      speed_threshold_quantile = speed_threshold_quantile,
+      max_steps = 2000,
+      collect_plots = diagnostic_plots,
+      min_candidates = min_candidates,
+      use_temporal_priority = TRUE
+    )))
+    final_track_backward <- res_backward$track
+    
+    if (diagnostic_plots) {
+      all_plots[[i]] <- list(
+        backward = res_backward$plots,
+        forward = res_forward$plots
+      )
+    }
+    
+    cat("  Step 5/6: Combining tracks...\n")
+    complete_track <- dplyr::bind_rows(
+      final_track_backward |> dplyr::filter(segment != ground_truth_segment),
+      df_seg |> dplyr::filter(segment == ground_truth_segment),
+      final_track_forward |> dplyr::filter(segment != ground_truth_segment)
+    ) |>
+      dplyr::arrange(time) |>
+      # Remove duplicate time values (keep first occurrence)
+      dplyr::distinct(time, .keep_all = TRUE)
+    
+    output_track <- df_individual |>
+      dplyr::select(time, x, y) |>
+      dplyr::rename(x_original = x, y_original = y) |>
+      dplyr::left_join(complete_track |> dplyr::select(time, x, y, segment), 
+                by = "time",
+                suffix = c("_original", "_reconstructed")) |>
+      dplyr::rename(x_reconstructed = x, y_reconstructed = y)
+    
+    cat(sprintf("  Step 6/6: Smoothing (%s)...\n", smooth_method))
+    output_track <- tryCatch({
+      smooth_single_track(output_track, method = smooth_method, n = smooth_window)
     }, error = function(e) {
       warning(sprintf("Individual %d smoothing failed: %s", i, e$message))
       output_track |> dplyr::mutate(x_smooth = NA_real_, y_smooth = NA_real_)
@@ -1275,7 +1515,7 @@ process_multi_individual <- function(df_raw,
 #' @param df_raw Data frame with columns: time, x1, y1, x2, y2, etc.
 #' @param smooth_method Smoothing method: "savitzky_golay" or "moving_average" (default: "savitzky_golay")
 #' @param smooth_window Smoothing window size. If "not_specified", automatically calculated from frame rate.
-#' @return List with tracks data frame compatible with overlay_track_on_video()
+#' @return List with tracks data frame compatible with overlay_video()
 #' @export
 #' @examples
 #' \dontrun{
@@ -1283,12 +1523,12 @@ process_multi_individual <- function(df_raw,
 #' df <- read.csv("tracking_data.csv")
 #' 
 #' # Smooth without reconstruction
-#' result <- smooth_multi_individual(df)
+#' result <- smooth_track(df)
 #' 
 #' # Create video overlay
-#' overlay_track_on_video(result$tracks, "video.mp4")
+#' overlay_video(result$tracks, "video.mp4")
 #' }
-smooth_multi_individual <- function(df_raw,
+smooth_track <- function(df_raw,
                                     smooth_method = "savitzky_golay",
                                     smooth_window = "not_specified") {
   # Ensure df_raw is a data frame
@@ -1443,7 +1683,7 @@ smooth_multi_individual <- function(df_raw,
 #'
 #' @param t Time in seconds
 #' @return Character string in ASS format (H:MM:SS.CS)
-#' @export
+#' @keywords internal
 seconds_to_ass_time <- function(t) {
   hours <- floor(t / 3600)
   remainder <- t %% 3600
@@ -1457,7 +1697,7 @@ seconds_to_ass_time <- function(t) {
 #'
 #' @param video_path Path to video file
 #' @return List with width and height
-#' @export
+#' @keywords internal
 get_video_resolution <- function(video_path) {
   cmd_res <- sprintf(
     'ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 "%s"',
@@ -1477,7 +1717,7 @@ get_video_resolution <- function(video_path) {
 #'
 #' Generates a video with reconstructed tracks overlaid on original footage.
 #'
-#' @param tracks_df Data frame with tracking results
+#' @param tracks_df Data frame with tracking results (from clean_track() or smooth_track())
 #' @param video_path Path to input video file
 #' @param output_name Output video filename (default: "overlaid.mp4")
 #' @param output_location Optional directory path for output video. 
@@ -1485,7 +1725,7 @@ get_video_resolution <- function(video_path) {
 #' @param use_smoothed Use smoothed track if available (default: TRUE)
 #' @return Path to output video
 #' @export
-overlay_track_on_video <- function(tracks_df, video_path, 
+overlay_video <- function(tracks_df, video_path, 
                                    output_name = "overlaid.mp4",
                                    output_location = NULL,
                                    dot_size = 18,

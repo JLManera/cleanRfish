@@ -18,3 +18,4 @@ Data frame with additional columns for jump detection metrics
 Identifies abrupt changes in trajectory that indicate tracking errors or identity swaps
 using combined standardised velocity and directional change metrics.
 }
+\keyword{internal}

@@ -15,3 +15,4 @@ Character string in ASS format (H:MM:SS.CS)
 \description{
 Convert Seconds to ASS Time Format
 }
+\keyword{internal}

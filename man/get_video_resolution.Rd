@@ -15,3 +15,4 @@ List with width and height
 \description{
 Get Video Resolution Using ffprobe
 }
+\keyword{internal}

@@ -1,0 +1,651 @@
+13:18:00 Welcome to idtracker.ai 6.0.12                                                                   logging_utils.py:184
+         Date: 2025-12-11 13:18:00                                                                        logging_utils.py:188
+         Running Python '3.12.9' in 'macOS-15.6.1-arm64-arm-64bit'                                                            
+         Writing log in /Users/jlman6/idtrackerai.log                                                     logging_utils.py:193
+         Using NumPy 2.2.4                                                                                logging_utils.py:196
+         Using headless OpenCV 4.10.0.84                                                                  logging_utils.py:199
+         Using regular OpenCV 4.11.0.86                                                                   logging_utils.py:206
+         Using "spawn" multiprocessing start method                                                       logging_utils.py:210
+         Loading parameters from                                                                                py_utils.py:84
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/example_idtrackerai_track.toml:                          
+                                name='example_idtrackerai_track'                                                              
+                         video_paths=['/Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/cam22025-07-               
+         15_57-177_tophalf.mp4']                                                                                              
+                       intensity_ths=[15, 255]                                                                                
+                            area_ths=[20.0, inf]                                                                              
+                  tracking_intervals=None                                                                                     
+                   number_of_animals=3                                                                                        
+                             use_bkg=True                                                                                     
+                  check_segmentation=False                                                                                    
+                 track_wo_identities=False                                                                                    
+                            roi_list=['+ Polygon [[409.9, 56.6], [398.1, 270.5], [404.8, 531.6], [1393.5,                     
+         481.1], [1356.5, 24.6], [863.0, 17.9]]',                                                                             
+                                      '- Polygon [[1301.2, 272.8], [1299.1, 280.8], [1300.0, 297.0], [1305.4,                 
+         298.5], [1309.3, 293.4], [1318.9, 291.0], [1318.6, 280.5], [1307.5, 277.2]]']                                        
+         background_subtraction_stat='median'                                                                                 
+         No terminal arguments detected                                                                         __main__.py:52
+         Initializing SegmentationGUI with PyQt6 6.9.1                                                     GUI_main_base.py:51
+         Saving GUI settings in /Users/jlman6/Library/Preferences/com.idtrackerai.idtrackerai_GUI.plist    GUI_main_base.py:62
+13:18:18 Generating frame stack for background subtraction with 50 samples                                 segmentation.py:254
+13:18:21 Computing background (50 iterations). It took 0:00:03                                             segmentation.py:282
+         Computing background from a stack of 50 frames using 'median'                                     segmentation.py:316
+13:19:07 GUI params:                                                                                               main.py:269
+                                name='example_idtrackerai_track'                                                              
+                         video_paths=['/Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/example_video.m            
+         p4']                                                                                                                 
+                       intensity_ths=[24, 255]                                                                                
+                            area_ths=[20.0, inf]                                                                              
+                  tracking_intervals=None                                                                                     
+                   number_of_animals=3                                                                                        
+                             use_bkg=True                                                                                     
+                  check_segmentation=False                                                                                    
+                 track_wo_identities=False                                                                                    
+                            roi_list=['+ Polygon [[409.9, 56.6], [398.1, 270.5], [404.8, 531.6], [1393.5, 481.1],             
+         [1356.5, 24.6], [863.0, 17.9]]',                                                                                     
+                                      '- Polygon [[1301.2, 272.8], [1299.1, 280.8], [1300.0, 297.0], [1305.4,                 
+         298.5], [1309.3, 293.4], [1318.9, 291.0], [1318.6, 280.5], [1307.5, 277.2]]']                                        
+         background_subtraction_stat='median'                                                                                 
+13:19:08 Using PyTorch 2.9.1                                                                                      device.py:15
+         Using MacOS Metal backend                                                                                device.py:34
+13:19:09 START Tracking session                                                                                      run.py:26
+         Initializing Session                                                                                   session.py:162
+         Setting video paths to:                                                                                session.py:174
+             /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/example_video.mp4                                    
+         The session has 3000 frames (6 episodes)                                                               session.py:228
+                 Episode 0, frames (0 -> 500) of /example_video.mp4                                             session.py:235
+                 Episode 1, frames (500 -> 1000) of /example_video.mp4                                          session.py:235
+                 Episode 2, frames (1000 -> 1500) of /example_video.mp4                                         session.py:235
+                 Episode 3, frames (1500 -> 2000) of /example_video.mp4                                         session.py:235
+                 Episode 4, frames (2000 -> 2500) of /example_video.mp4                                         session.py:235
+                 Episode 5, frames (2500 -> 3000) of /example_video.mp4                                         session.py:235
+         Directory                                                                                              session.py:267
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track has been               
+         created                                                                                                              
+         Directory                                                                                              session.py:268
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/preproce               
+         ssing has been created                                                                                               
+         ROI mask saved at                                                                                      session.py:609
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/preproce               
+         ssing/ROI_mask.png                                                                                                   
+         Number of parallel jobs: 4                                                                             session.py:290
+         Background from Segmentation App moved to                                                              session.py:305
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/preproce               
+         ssing/background.png                                                                                                 
+         Saving Session object in                                                                                   run.py:112
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/session.json           
+         START Animal detection                                                                                py_utils.py:197
+         Directory                                                                                     animals_detection.py:17
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track                        
+         /bounding_box_images has been created                                                                                
+         Using previously computed background model from GUI                                           animals_detection.py:31
+         Segmenting video, 6 episodes in 4 parallel jobs                                                   segmentation.py:205
+         Saving bounding box images in                                                                     segmentation.py:208
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/bou                    
+         nding_box_images                                                                                                     
+13:19:11 Segmenting video (6 iterations). It took 0:00:02                                                  segmentation.py:234
+         Generating ListOfBlobs object                                                                     list_of_blobs.py:48
+         8343 detected blobs in total, an average of 2.8 blobs per frame                               animals_detection.py:64
+         WARNING There are 168 frames with more blobs than animals                                    animals_detection.py:110
+         WARNING This can be detrimental for the proper functioning of the system                     animals_detection.py:122
+         WARNING Too many frames with more blobs than animals for printing their indices in log       animals_detection.py:126
+         Saving indices of frames with more blobs than animals in                                     animals_detection.py:131
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_trac                         
+         k/inconsistent_frames.csv                                                                                            
+         Check_segmentation is False, ignoring the above errors                                       animals_detection.py:142
+         FINISH Animal detection, it took 0:00:02                                                              py_utils.py:202
+         Saving Session object in                                                                                   run.py:112
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/session.json           
+         Saving ListOfBlobs at                                                                                      run.py:114
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/preprocessin           
+         g/list_of_blobs.pickle                                                                                               
+         Writing list_of_blobs.pickle (2.7 MB). It took 0:00:00                                           list_of_blobs.py:100
+         START Crossing detection                                                                              py_utils.py:197
+         Computing body lengths (3000 iterations). It took 0:00:00                                            model_area.py:75
+         The median body length is 22.0 pixels                                                                model_area.py:89
+13:19:12 The automatic identification image size is 16                                                          session.py:506
+         No resolution reduction required                                                                       session.py:519
+         Identification image size set to [16, 16, 1], resolution reduction factor set to 1                     session.py:554
+         Directory                                                                                              __init__.py:27
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/identifi               
+         cation_images has been created                                                                                       
+         Setting images for identification (6 iterations). It took 0:00:00                                list_of_blobs.py:226
+         Connecting blobs (3000 iterations). It took 0:00:00                                              list_of_blobs.py:161
+         Classifying Blobs as individuals or crossings depending on their area and the number of blobs crossing_detector.py:31
+         in the frame                                                                                                         
+         Initializing ModelArea for individual/crossing blob initial classification                           model_area.py:40
+         Model area computed with 6081 blobs: mean=83.8, median=76.0, and std=41.8 pixels                     model_area.py:59
+         8316 blobs seem like individuals, 27 seem like crossings                                      crossing_detector.py:46
+         Get list of blobs for training, validation and eval                                           crossings_dataset.py:18
+         First individual/crossing assignment (3000 iterations). It took 0:00:00                       crossings_dataset.py:22
+         6081 sure individuals and 26 sure crossings                                                   crossings_dataset.py:46
+         2700 individual and 24 crossing blobs for training                                            crossings_dataset.py:83
+         300 individual and 2 crossing blobs for validation                                                                   
+         2236 unknown blobs                                                                            crossing_detector.py:98
+         There are enough crossings to train the crossing detector                                    crossing_detector.py:108
+         Directory                                                                                    crossing_detector.py:110
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_trac                         
+         k/crossings_detector has been created                                                                                
+         Loading 2724 identification images from disk (6 iterations). It took 0:00:00                          py_utils.py:471
+         Creating training dataloader with 2724 images labeled with 2 distinct classes                            train.py:256
+         Loading 302 identification images from disk (6 iterations). It took 0:00:00                           py_utils.py:471
+         Creating validation dataloader with 302 images labeled with 2 distinct classes                           train.py:256
+         Creating IdCNN model                                                                                     models.py:55
+         Reinitializing IdCNN                                                                                     models.py:82
+         Entering the training loop...                                                                            train.py:129
+13:19:23 The individual accuracies in validation is 100%, we stop the training                                    train.py:145
+         Last epoch: Epoch 11: training_loss=0.00004, validation_loss=0.00032 and accuracy=100.000%               train.py:146
+         Network trained                                                                                          train.py:147
+13:19:48 Saving model at                                                                              crossing_detector.py:179
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_trac                         
+         k/crossings_detector/crossing_detector.model.pt                                                                      
+         Using crossing detector to classify individuals and crossings                                crossing_detector.py:182
+         Predicting crossings of 2236 images                                                                _contextlib.py:120
+         Creating on-the-fly DataLoader with 2236 images                                                          train.py:329
+13:20:00 Predicting crossings (3 iterations). It took 0:00:12                                                     train.py:306
+         Prediction results: 2230 individuals and 6 crossings                                         crossing_detector.py:190
+         Updating crossings in identification images files                                             crossing_detector.py:58
+         FINISH Crossing detection, it took 0:00:48                                                            py_utils.py:202
+         Saving Session object in                                                                                   run.py:112
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/session.json           
+         Saving ListOfBlobs at                                                                                      run.py:114
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/preprocessin           
+         g/list_of_blobs.pickle                                                                                               
+         Writing list_of_blobs.pickle (2.9 MB). It took 0:00:00                                           list_of_blobs.py:100
+         START Fragmentation                                                                                   py_utils.py:197
+         Fragmenting blobs (3000 iterations). It took 0:00:00                                              fragmentation.py:59
+         Creating list of fragments                                                                   list_of_fragments.py:192
+         Connecting coexisting fragments (232 iterations). It took 0:00:00                            list_of_fragments.py:455
+         232 Fragments in total, 227 individuals and 5 crossings                                           fragmentation.py:30
+         Total number of Global Fragments: 112                                                  list_of_global_fragments.py:78
+         Of which 92 are long enough to be accumulated                                          list_of_global_fragments.py:82
+         FINISH Fragmentation, it took 0:00:00                                                                 py_utils.py:202
+         Saving Session object in                                                                                   run.py:112
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/session.json           
+         Saving ListOfBlobs at                                                                                      run.py:114
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/preprocessin           
+         g/list_of_blobs.pickle                                                                                               
+         Writing list_of_blobs.pickle (3.0 MB). It took 0:00:00                                           list_of_blobs.py:100
+         Saving ListOfFragments as                                                                                  run.py:116
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/preprocessin           
+         g/list_of_fragments.json                                                                                             
+         Writing list_of_fragments.json (179.6 kB). It took 0:00:00                                   list_of_fragments.py:243
+         Saving ListOfGlobalFragments at                                                                            run.py:118
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/preprocessin           
+         g/list_of_global_fragments.json                                                                                      
+         START Tracking                                                                                        py_utils.py:197
+13:20:02 Deleting ListOfBlobs to save memory, it will be reloaded from disk after tracking                      __init__.py:37
+         Tracking with identities                                                                                tracker.py:28
+         Directory                                                                                               tracker.py:29
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/accumulat              
+         ion has been created                                                                                                 
+         START Fragment identification                                                                         py_utils.py:197
+         Resetting ListOfFragments to 'fragmentation'                                                            tracker.py:62
+         Initializing accumulation manager                                                          accumulation_manager.py:58
+         Using the Global Fragment at frame 870 as the first one in accumulation                       identity_transfer.py:20
+         Tracking without identity transfer, assigning random initial identities                       identity_transfer.py:43
+         START Contrastive step                                                                                py_utils.py:197
+         Fragment connectivity is 1.90, which is good enough for contrastive training                           tracker.py:244
+         Out of 232 fragments, 135 are individuals and longer than 3 frames, they are gonna be used for     contrastive.py:269
+         contrastive training                                                                                                 
+         Generated 257 negative and 135 positive pairs of Fragments                                         contrastive.py:286
+         Maximum memory usage for pre-loading images not set (CONTRASTIVE_MAX_MBYTES=None), using a forth   contrastive.py:318
+         of the available memory in the system: 2324.4 MB                                                                     
+         All identification images weight 2.0 MB. The stated limit for them to be pre-loaded is 2324.4 MB   contrastive.py:326
+         Pre-loading all identification images to RAM (6 iterations). It took 0:00:00                       contrastive.py:338
+         Validating contrastive clusters with 3000 images                                                   contrastive.py:375
+         Using 1 workers to load images for the training and validation DataLoaders                         contrastive.py:389
+         Using 742 images from the global fragment starting at frame 870 as the groundtruth dataset to      contrastive.py:464
+         initialize K-Means clustering                                                                                        
+         Randomly initializing contrastive model                                                            contrastive.py:511
+         Press Ctrl+C to early stop training at any time                                                    contrastive.py:624
+         Batch | Batches/s | Silhouette score | Too far apart positive pairs | Too close negative pairs     contrastive.py:625
+13:21:39   500 |    5.5    |      0.6274!     |             33.3%            |           14.2%              contrastive.py:652
+13:21:58   600 |    5.5    |      0.6452!     |             34.5%            |           18.0%              contrastive.py:652
+13:22:16   700 |    5.5    |      0.6881!     |             24.9%            |           13.5%              contrastive.py:652
+13:22:35   800 |    5.5    |      0.6848      |             21.9%            |           11.8%              contrastive.py:652
+13:22:53   900 |    5.5    |      0.6901!     |             23.9%            |           13.2%              contrastive.py:652
+13:23:12  1000 |    5.5    |      0.7050!     |             18.5%            |           11.2%              contrastive.py:652
+13:23:30  1100 |    5.5    |      0.7220!     |              8.5%            |            3.7%              contrastive.py:652
+13:23:48  1200 |    5.5    |      0.6984      |             16.6%            |            7.2%              contrastive.py:652
+13:24:07  1300 |    5.5    |      0.6921      |             16.6%            |            9.0%              contrastive.py:652
+13:24:25  1400 |    5.5    |      0.6851      |             19.8%            |           10.8%              contrastive.py:652
+13:24:44  1500 |    5.5    |      0.7055      |             17.8%            |           11.7%              contrastive.py:652
+13:25:02  1600 |    5.5    |      0.7110      |             11.7%            |            7.3%              contrastive.py:652
+13:25:21  1700 |    5.5    |      0.7076      |             12.8%            |            6.7%              contrastive.py:652
+13:25:39  1800 |    5.5    |      0.7140      |             17.2%            |            6.7%              contrastive.py:652
+13:25:58  1900 |    5.5    |      0.7255!     |              6.9%            |            3.5%              contrastive.py:652
+13:26:16  2000 |    5.5    |      0.7139      |             14.6%            |            6.5%              contrastive.py:652
+13:26:35  2100 |    5.5    |      0.7188      |             13.0%            |            7.5%              contrastive.py:652
+13:26:53  2200 |    5.5    |      0.7144      |              7.6%            |            4.0%              contrastive.py:652
+13:27:12  2300 |    5.5    |      0.7123      |              9.9%            |            3.3%              contrastive.py:652
+13:27:30  2400 |    5.5    |      0.7154      |              9.2%            |            4.5%              contrastive.py:652
+13:27:49  2500 |    5.5    |      0.7151      |             12.1%            |            8.5%              contrastive.py:652
+13:28:07  2600 |    5.5    |      0.7354!     |             10.7%            |            6.4%              contrastive.py:652
+13:28:26  2700 |    5.5    |      0.7025      |              8.8%            |            5.3%              contrastive.py:652
+13:28:44  2800 |    5.5    |      0.7079      |              9.5%            |            5.6%              contrastive.py:652
+13:29:03  2900 |    5.5    |      0.7052      |             10.0%            |            6.7%              contrastive.py:652
+13:29:21  3000 |    5.5    |      0.7206      |              7.0%            |            4.8%              contrastive.py:652
+13:29:40  3100 |    5.5    |      0.7122      |              7.5%            |            3.5%              contrastive.py:652
+13:29:59  3200 |    5.5    |      0.7113      |             13.5%            |            8.2%              contrastive.py:652
+13:30:17  3300 |    5.5    |      0.7213      |             11.0%            |            6.8%              contrastive.py:652
+13:30:35  3400 |    5.5    |      0.7177      |              9.1%            |            6.2%              contrastive.py:652
+13:30:54  3500 |    5.5    |      0.7295      |             11.2%            |            6.5%              contrastive.py:652
+13:31:12  3600 |    5.5    |      0.7070      |              7.1%            |            4.5%              contrastive.py:652
+13:31:31  3700 |    5.5    |      0.7292      |              7.6%            |            3.3%              contrastive.py:652
+13:31:49  3800 |    5.5    |      0.7278      |              7.2%            |            3.8%              contrastive.py:652
+13:32:08  3900 |    5.5    |      0.7112      |              7.4%            |            4.6%              contrastive.py:652
+13:32:26  4000 |    5.5    |      0.7162      |              8.1%            |            4.8%              contrastive.py:652
+13:32:45  4100 |    5.5    |      0.7394!     |              8.4%            |            6.2%              contrastive.py:652
+13:33:03  4200 |    5.5    |      0.7156      |              7.3%            |            3.7%              contrastive.py:652
+13:33:22  4300 |    5.5    |      0.7202      |              5.2%            |            3.3%              contrastive.py:652
+13:33:40  4400 |    5.5    |      0.7445!     |              9.1%            |            7.5%              contrastive.py:652
+13:33:59  4500 |    5.5    |      0.6984      |              6.5%            |            4.3%              contrastive.py:652
+13:34:17  4600 |    5.5    |      0.7248      |             10.3%            |            7.3%              contrastive.py:652
+13:34:36  4700 |    5.5    |      0.7349      |              4.8%            |            2.3%              contrastive.py:652
+13:34:54  4800 |    5.5    |      0.7456!     |              7.2%            |            2.8%              contrastive.py:652
+13:35:13  4900 |    5.5    |      0.7149      |              8.3%            |            3.5%              contrastive.py:652
+13:35:32  5000 |    5.5    |      0.7234      |              5.2%            |            3.9%              contrastive.py:652
+13:35:50  5100 |    5.5    |      0.7123      |              7.4%            |            5.0%              contrastive.py:652
+13:36:09  5200 |    5.5    |      0.7412      |              7.0%            |            6.4%              contrastive.py:652
+13:36:27  5300 |    5.5    |      0.7358      |              8.9%            |            5.7%              contrastive.py:652
+13:36:46  5400 |    5.5    |      0.7424      |              4.8%            |            2.6%              contrastive.py:652
+13:37:04  5500 |    5.5    |      0.7336      |              6.3%            |            3.8%              contrastive.py:652
+13:37:23  5600 |    5.5    |      0.7408      |              8.0%            |            5.1%              contrastive.py:652
+13:37:41  5700 |    5.5    |      0.7371      |              7.2%            |            4.1%              contrastive.py:652
+13:38:00  5800 |    5.5    |      0.7231      |              2.5%            |            1.7%              contrastive.py:652
+13:38:18  5900 |    5.5    |      0.7405      |              5.2%            |            3.2%              contrastive.py:652
+13:38:37  6000 |    5.5    |      0.7352      |              5.1%            |            2.6%              contrastive.py:652
+13:38:55  6100 |    5.5    |      0.7514!     |              4.3%            |            1.6%              contrastive.py:652
+13:39:14  6200 |    5.5    |      0.7150      |              6.8%            |            4.3%              contrastive.py:652
+13:39:32  6300 |    5.5    |      0.7441      |              6.6%            |            5.3%              contrastive.py:652
+13:39:51  6400 |    5.5    |      0.7351      |              9.6%            |            6.3%              contrastive.py:652
+13:40:10  6500 |    5.5    |      0.7348      |              4.1%            |            2.5%              contrastive.py:652
+13:40:28  6600 |    5.5    |      0.7267      |              4.9%            |            4.9%              contrastive.py:652
+13:40:47  6700 |    5.5    |      0.7333      |              4.1%            |            3.0%              contrastive.py:652
+13:41:06  6800 |    5.5    |      0.7246      |              3.0%            |            1.5%              contrastive.py:652
+13:41:24  6900 |    5.5    |      0.7253      |              6.7%            |            4.3%              contrastive.py:652
+13:41:43  7000 |    5.5    |      0.7458      |              7.7%            |            6.7%              contrastive.py:652
+13:42:02  7100 |    5.5    |      0.7461      |              4.2%            |            2.5%              contrastive.py:652
+13:42:20  7200 |    5.5    |      0.7561!     |              4.3%            |            1.9%              contrastive.py:652
+13:42:39  7300 |    5.5    |      0.7389      |              6.4%            |            4.0%              contrastive.py:652
+13:42:58  7400 |    5.5    |      0.7386      |              3.7%            |            2.1%              contrastive.py:652
+13:43:16  7500 |    5.5    |      0.7312      |              4.2%            |            3.7%              contrastive.py:652
+13:43:35  7600 |    5.5    |      0.7414      |              2.4%            |            0.7%              contrastive.py:652
+13:43:54  7700 |    5.5    |      0.7463      |              3.5%            |            2.9%              contrastive.py:652
+13:44:13  7800 |    5.5    |      0.7493      |              4.2%            |            2.9%              contrastive.py:652
+13:44:31  7900 |    5.5    |      0.6965      |              5.8%            |            6.5%              contrastive.py:652
+13:44:50  8000 |    5.5    |      0.7521      |              4.0%            |            2.7%              contrastive.py:652
+13:45:09  8100 |    5.5    |      0.7615!     |              2.0%            |            0.5%              contrastive.py:652
+13:45:27  8200 |    5.5    |      0.7432      |             14.0%            |            5.9%              contrastive.py:652
+13:45:46  8300 |    5.5    |      0.7478      |              3.0%            |            2.2%              contrastive.py:652
+13:46:05  8400 |    5.5    |      0.7312      |              4.2%            |            2.6%              contrastive.py:652
+13:46:23  8500 |    5.5    |      0.7205      |              8.5%            |            4.6%              contrastive.py:652
+13:46:42  8600 |    5.5    |      0.7425      |              6.5%            |            5.1%              contrastive.py:652
+13:47:00  8700 |    5.5    |      0.7313      |              1.9%            |            1.1%              contrastive.py:652
+13:47:18  8800 |    5.5    |      0.7607      |              3.5%            |            2.3%              contrastive.py:652
+13:47:37  8900 |    5.5    |      0.7399      |              2.8%            |            2.6%              contrastive.py:652
+13:47:55  9000 |    5.5    |      0.7278      |              8.2%            |            5.1%              contrastive.py:652
+13:48:13  9100 |    5.5    |      0.7425      |              6.3%            |            2.8%              contrastive.py:652
+13:48:31  9200 |    5.5    |      0.7440      |              4.4%            |            1.8%              contrastive.py:652
+13:48:50  9300 |    5.5    |      0.7511      |              6.3%            |            3.2%              contrastive.py:652
+13:49:08  9400 |    5.5    |      0.7221      |              4.4%            |            3.5%              contrastive.py:652
+13:49:27  9500 |    5.5    |      0.7406      |              8.0%            |            5.4%              contrastive.py:652
+13:49:45  9600 |    5.5    |      0.7614      |              1.2%            |            0.2%              contrastive.py:652
+13:50:03  9700 |    5.5    |      0.7278      |             17.1%            |            6.8%              contrastive.py:652
+13:50:22  9800 |    5.5    |      0.7404      |              6.9%            |            2.3%              contrastive.py:652
+13:50:40  9900 |    5.5    |      0.7504      |              6.0%            |            1.4%              contrastive.py:652
+13:50:58 10000 |    5.5    |      0.7650!     |              5.9%            |            1.6%              contrastive.py:652
+13:51:17 10100 |    5.5    |      0.7590      |              7.4%            |            1.6%              contrastive.py:652
+13:51:35 10200 |    5.5    |      0.7532      |              7.9%            |            1.8%              contrastive.py:652
+13:51:53 10300 |    5.5    |      0.7522      |              6.7%            |            3.0%              contrastive.py:652
+13:52:12 10400 |    5.5    |      0.7479      |              3.7%            |            2.4%              contrastive.py:652
+13:52:30 10500 |    5.5    |      0.7323      |              7.5%            |            4.0%              contrastive.py:652
+13:52:48 10600 |    5.5    |      0.7688!     |              7.5%            |            4.5%              contrastive.py:652
+13:53:07 10700 |    5.5    |      0.7542      |              4.0%            |            2.7%              contrastive.py:652
+13:53:25 10800 |    5.5    |      0.7511      |              4.5%            |            2.6%              contrastive.py:652
+13:53:43 10900 |    5.5    |      0.7589      |             10.7%            |            3.6%              contrastive.py:652
+13:54:02 11000 |    5.5    |      0.7621      |              1.3%            |            0.6%              contrastive.py:652
+13:54:20 11100 |    5.5    |      0.7703!     |             13.7%            |            4.8%              contrastive.py:652
+13:54:38 11200 |    5.5    |      0.7683      |              3.2%            |            1.8%              contrastive.py:652
+13:54:57 11300 |    5.5    |      0.7740!     |              2.6%            |            1.2%              contrastive.py:652
+13:55:15 11400 |    5.5    |      0.7574      |             14.0%            |            4.8%              contrastive.py:652
+13:55:33 11500 |    5.5    |      0.7620      |              4.4%            |            1.0%              contrastive.py:652
+13:55:52 11600 |    5.5    |      0.7741!     |              4.1%            |            1.1%              contrastive.py:652
+13:56:10 11700 |    5.5    |      0.7720      |              1.5%            |            0.0%              contrastive.py:652
+13:56:28 11800 |    5.5    |      0.7476      |             12.0%            |            3.8%              contrastive.py:652
+13:56:47 11900 |    5.5    |      0.7744!     |              3.4%            |            2.0%              contrastive.py:652
+13:57:05 12000 |    5.5    |      0.7751!     |              2.6%            |            1.9%              contrastive.py:652
+13:57:23 12100 |    5.5    |      0.7705      |              1.8%            |            1.3%              contrastive.py:652
+13:57:42 12200 |    5.5    |      0.7561      |              4.2%            |            2.2%              contrastive.py:652
+13:58:00 12300 |    5.5    |      0.7700      |              7.8%            |            3.5%              contrastive.py:652
+13:58:18 12400 |    5.5    |      0.7807!     |              1.2%            |            0.5%              contrastive.py:652
+13:58:37 12500 |    5.5    |      0.7822!     |              4.2%            |            0.8%              contrastive.py:652
+13:58:55 12600 |    5.5    |      0.7682      |              4.2%            |            3.7%              contrastive.py:652
+13:59:13 12700 |    5.5    |      0.7816      |              2.6%            |            1.4%              contrastive.py:652
+13:59:32 12800 |    5.5    |      0.7606      |              4.9%            |            1.9%              contrastive.py:652
+13:59:50 12900 |    5.5    |      0.7720      |              4.5%            |            1.8%              contrastive.py:652
+14:00:08 13000 |    5.5    |      0.7690      |              2.0%            |            2.0%              contrastive.py:652
+14:00:26 13100 |    5.5    |      0.7820      |              1.7%            |            0.8%              contrastive.py:652
+14:00:45 13200 |    5.5    |      0.7388      |              3.6%            |            3.9%              contrastive.py:652
+14:01:03 13300 |    5.5    |      0.7656      |              6.6%            |            3.7%              contrastive.py:652
+14:01:21 13400 |    5.5    |      0.7781      |              2.4%            |            0.7%              contrastive.py:652
+14:01:40 13500 |    5.5    |      0.7635      |              8.7%            |            4.2%              contrastive.py:652
+14:01:58 13600 |    5.5    |      0.7729      |              3.6%            |            1.8%              contrastive.py:652
+14:02:16 13700 |    5.5    |      0.7703      |              2.4%            |            1.1%              contrastive.py:652
+14:02:35 13800 |    5.5    |      0.7693      |              1.3%            |            0.7%              contrastive.py:652
+14:02:53 13900 |    5.5    |      0.7836!     |              2.6%            |            0.7%              contrastive.py:652
+14:03:11 14000 |    5.5    |      0.7512      |              5.5%            |            4.3%              contrastive.py:652
+14:03:30 14100 |    5.5    |      0.7710      |              3.2%            |            2.3%              contrastive.py:652
+14:03:48 14200 |    5.5    |      0.7491      |              6.0%            |            2.5%              contrastive.py:652
+14:04:06 14300 |    5.5    |      0.7645      |              6.8%            |            2.4%              contrastive.py:652
+14:04:25 14400 |    5.5    |      0.7778      |              1.9%            |            1.4%              contrastive.py:652
+14:04:43 14500 |    5.5    |      0.7738      |              1.6%            |            1.8%              contrastive.py:652
+14:05:01 14600 |    5.5    |      0.7676      |              4.9%            |            1.9%              contrastive.py:652
+14:05:19 14700 |    5.5    |      0.7800      |              1.3%            |            0.9%              contrastive.py:652
+14:05:38 14800 |    5.5    |      0.7672      |              4.9%            |            1.6%              contrastive.py:652
+14:05:56 14900 |    5.5    |      0.7612      |              3.4%            |            3.0%              contrastive.py:652
+14:06:15 15000 |    5.5    |      0.7552      |              5.0%            |            2.5%              contrastive.py:652
+14:06:33 15100 |    5.5    |      0.7666      |              2.9%            |            1.1%              contrastive.py:652
+14:06:51 15200 |    5.5    |      0.7869!     |              0.9%            |            0.5%              contrastive.py:652
+14:07:10 15300 |    5.5    |      0.7699      |             12.2%            |            5.0%              contrastive.py:652
+14:07:28 15400 |    5.5    |      0.7749      |              1.4%            |            0.3%              contrastive.py:652
+14:07:46 15500 |    5.5    |      0.7107      |             10.2%            |            4.4%              contrastive.py:652
+14:08:05 15600 |    5.5    |      0.7800      |              8.4%            |            2.6%              contrastive.py:652
+14:08:23 15700 |    5.5    |      0.7795      |              1.2%            |            0.1%              contrastive.py:652
+14:08:41 15800 |    5.5    |      0.7617      |             11.6%            |            2.2%              contrastive.py:652
+14:08:59 15900 |    5.5    |      0.7655      |              3.1%            |            1.2%              contrastive.py:652
+14:09:18 16000 |    5.5    |      0.7725      |              4.1%            |            1.7%              contrastive.py:652
+14:09:36 16100 |    5.5    |      0.7671      |              6.3%            |            1.8%              contrastive.py:652
+14:09:54 16200 |    5.5    |      0.7720      |              2.8%            |            0.6%              contrastive.py:652
+14:10:13 16300 |    5.5    |      0.7670      |              3.6%            |            0.4%              contrastive.py:652
+14:10:31 16400 |    5.5    |      0.7743      |              3.9%            |            2.1%              contrastive.py:652
+14:10:49 16500 |    5.5    |      0.7721      |              0.9%            |            0.9%              contrastive.py:652
+14:11:08 16600 |    5.5    |      0.7748      |              2.4%            |            1.5%              contrastive.py:652
+14:11:26 16700 |    5.5    |      0.7799      |              1.0%            |            0.6%              contrastive.py:652
+14:11:44 16800 |    5.5    |      0.7768      |              4.1%            |            2.8%              contrastive.py:652
+14:12:02 16900 |    5.5    |      0.7820      |              1.3%            |            0.4%              contrastive.py:652
+14:12:21 17000 |    5.5    |      0.7758      |              4.5%            |            1.4%              contrastive.py:652
+14:12:39 17100 |    5.5    |      0.7666      |              5.1%            |            3.4%              contrastive.py:652
+14:12:58 17200 |    5.5    |      0.7755      |              2.6%            |            2.6%              contrastive.py:652
+14:13:16 17300 |    5.5    |      0.7813      |              1.2%            |            0.3%              contrastive.py:652
+14:13:34 17400 |    5.5    |      0.7822      |              0.7%            |            0.0%              contrastive.py:652
+14:13:52 17500 |    5.6    |      0.7684      |              7.1%            |            2.4%              contrastive.py:652
+14:14:11 17600 |    5.5    |      0.7745      |              4.6%            |            2.9%              contrastive.py:652
+14:14:29 17700 |    5.5    |      0.7804      |              1.8%            |            0.5%              contrastive.py:652
+14:14:47 17800 |    5.6    |      0.7800      |              3.1%            |            1.9%              contrastive.py:652
+14:15:05 17900 |    5.5    |      0.7717      |              1.3%            |            1.2%              contrastive.py:652
+14:15:24 18000 |    5.5    |      0.7812      |              1.5%            |            0.5%              contrastive.py:652
+14:15:42 18100 |    5.6    |      0.7651      |              4.1%            |            1.6%              contrastive.py:652
+14:16:00 18200 |    5.6    |      0.7703      |              3.1%            |            3.5%              contrastive.py:652
+14:16:19 18300 |    5.6    |      0.7667      |              2.9%            |            4.4%              contrastive.py:652
+         The model has not improved for CONTRASTIVE_PATIENCE=30 steps. Before stop training, we will try to contrastive.py:677
+         initialize KMeans with "k-means++" rather than using the images from a Global Fragment                               
+14:16:37 WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/utils/extmath.py:203:           warnings.py:112
+         RuntimeWarning: divide by zero encountered in matmul                                                                 
+           ret = a @ b                                                                                                        
+                                                                                                                              
+         WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/utils/extmath.py:203:           warnings.py:112
+         RuntimeWarning: overflow encountered in matmul                                                                       
+           ret = a @ b                                                                                                        
+                                                                                                                              
+         WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/utils/extmath.py:203:           warnings.py:112
+         RuntimeWarning: invalid value encountered in matmul                                                                  
+           ret = a @ b                                                                                                        
+                                                                                                                              
+         WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/cluster/_kmeans.py:237:         warnings.py:112
+         RuntimeWarning: divide by zero encountered in matmul                                                                 
+           current_pot = closest_dist_sq @ sample_weight                                                                      
+                                                                                                                              
+         WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/cluster/_kmeans.py:237:         warnings.py:112
+         RuntimeWarning: overflow encountered in matmul                                                                       
+           current_pot = closest_dist_sq @ sample_weight                                                                      
+                                                                                                                              
+         WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/cluster/_kmeans.py:237:         warnings.py:112
+         RuntimeWarning: invalid value encountered in matmul                                                                  
+           current_pot = closest_dist_sq @ sample_weight                                                                      
+                                                                                                                              
+         18400 |    5.6    |      0.7739      |              2.4%            |            1.2%              contrastive.py:652
+14:16:55 WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/utils/extmath.py:203:           warnings.py:112
+         RuntimeWarning: divide by zero encountered in matmul                                                                 
+           ret = a @ b                                                                                                        
+                                                                                                                              
+         WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/utils/extmath.py:203:           warnings.py:112
+         RuntimeWarning: overflow encountered in matmul                                                                       
+           ret = a @ b                                                                                                        
+                                                                                                                              
+         WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/utils/extmath.py:203:           warnings.py:112
+         RuntimeWarning: invalid value encountered in matmul                                                                  
+           ret = a @ b                                                                                                        
+                                                                                                                              
+         WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/cluster/_kmeans.py:237:         warnings.py:112
+         RuntimeWarning: divide by zero encountered in matmul                                                                 
+           current_pot = closest_dist_sq @ sample_weight                                                                      
+                                                                                                                              
+         WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/cluster/_kmeans.py:237:         warnings.py:112
+         RuntimeWarning: overflow encountered in matmul                                                                       
+           current_pot = closest_dist_sq @ sample_weight                                                                      
+                                                                                                                              
+         WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/cluster/_kmeans.py:237:         warnings.py:112
+         RuntimeWarning: invalid value encountered in matmul                                                                  
+           current_pot = closest_dist_sq @ sample_weight                                                                      
+                                                                                                                              
+         18500 |    5.6    |      0.7749      |              0.6%            |            0.1%              contrastive.py:652
+14:17:13 WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/utils/extmath.py:203:           warnings.py:112
+         RuntimeWarning: divide by zero encountered in matmul                                                                 
+           ret = a @ b                                                                                                        
+                                                                                                                              
+         WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/utils/extmath.py:203:           warnings.py:112
+         RuntimeWarning: overflow encountered in matmul                                                                       
+           ret = a @ b                                                                                                        
+                                                                                                                              
+         WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/utils/extmath.py:203:           warnings.py:112
+         RuntimeWarning: invalid value encountered in matmul                                                                  
+           ret = a @ b                                                                                                        
+                                                                                                                              
+         WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/cluster/_kmeans.py:237:         warnings.py:112
+         RuntimeWarning: divide by zero encountered in matmul                                                                 
+           current_pot = closest_dist_sq @ sample_weight                                                                      
+                                                                                                                              
+         WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/cluster/_kmeans.py:237:         warnings.py:112
+         RuntimeWarning: overflow encountered in matmul                                                                       
+           current_pot = closest_dist_sq @ sample_weight                                                                      
+                                                                                                                              
+         WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/cluster/_kmeans.py:237:         warnings.py:112
+         RuntimeWarning: invalid value encountered in matmul                                                                  
+           current_pot = closest_dist_sq @ sample_weight                                                                      
+                                                                                                                              
+         18600 |    5.6    |      0.7711      |              7.3%            |            1.5%              contrastive.py:652
+14:17:31 WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/utils/extmath.py:203:           warnings.py:112
+         RuntimeWarning: divide by zero encountered in matmul                                                                 
+           ret = a @ b                                                                                                        
+                                                                                                                              
+         WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/utils/extmath.py:203:           warnings.py:112
+         RuntimeWarning: overflow encountered in matmul                                                                       
+           ret = a @ b                                                                                                        
+                                                                                                                              
+         WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/utils/extmath.py:203:           warnings.py:112
+         RuntimeWarning: invalid value encountered in matmul                                                                  
+           ret = a @ b                                                                                                        
+                                                                                                                              
+         WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/cluster/_kmeans.py:237:         warnings.py:112
+         RuntimeWarning: divide by zero encountered in matmul                                                                 
+           current_pot = closest_dist_sq @ sample_weight                                                                      
+                                                                                                                              
+         WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/cluster/_kmeans.py:237:         warnings.py:112
+         RuntimeWarning: overflow encountered in matmul                                                                       
+           current_pot = closest_dist_sq @ sample_weight                                                                      
+                                                                                                                              
+         WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/cluster/_kmeans.py:237:         warnings.py:112
+         RuntimeWarning: invalid value encountered in matmul                                                                  
+           current_pot = closest_dist_sq @ sample_weight                                                                      
+                                                                                                                              
+         18700 |    5.5    |      0.7801      |              3.9%            |            2.4%              contrastive.py:652
+14:17:50 WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/utils/extmath.py:203:           warnings.py:112
+         RuntimeWarning: divide by zero encountered in matmul                                                                 
+           ret = a @ b                                                                                                        
+                                                                                                                              
+         WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/utils/extmath.py:203:           warnings.py:112
+         RuntimeWarning: overflow encountered in matmul                                                                       
+           ret = a @ b                                                                                                        
+                                                                                                                              
+         WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/utils/extmath.py:203:           warnings.py:112
+         RuntimeWarning: invalid value encountered in matmul                                                                  
+           ret = a @ b                                                                                                        
+                                                                                                                              
+         WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/cluster/_kmeans.py:237:         warnings.py:112
+         RuntimeWarning: divide by zero encountered in matmul                                                                 
+           current_pot = closest_dist_sq @ sample_weight                                                                      
+                                                                                                                              
+         WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/cluster/_kmeans.py:237:         warnings.py:112
+         RuntimeWarning: overflow encountered in matmul                                                                       
+           current_pot = closest_dist_sq @ sample_weight                                                                      
+                                                                                                                              
+         WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/cluster/_kmeans.py:237:         warnings.py:112
+         RuntimeWarning: invalid value encountered in matmul                                                                  
+           current_pot = closest_dist_sq @ sample_weight                                                                      
+                                                                                                                              
+         18800 |    5.5    |      0.7818      |              0.8%            |            0.1%              contrastive.py:652
+         WARNING The model has not improved for CONTRASTIVE_PATIENCE=30 steps, we stop the training.        contrastive.py:687
+         Increase the value of this parameter to allow further training.                                                      
+         Loading best model weights from the checkpoint with silhouette score 0.7868735                     contrastive.py:712
+         Restoring the Global Fragment KMeans initialization since its removal did not improve results      contrastive.py:725
+         Predicting 8169 images with contrastive model                                                      contrastive.py:782
+         Creating on-the-fly DataLoader with 8169 images                                                          train.py:329
+14:18:03 Predicting (9 iterations). It took 0:00:13                                                         contrastive.py:794
+14:18:04 WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/utils/extmath.py:203:           warnings.py:112
+         RuntimeWarning: divide by zero encountered in matmul                                                                 
+           ret = a @ b                                                                                                        
+                                                                                                                              
+         WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/utils/extmath.py:203:           warnings.py:112
+         RuntimeWarning: overflow encountered in matmul                                                                       
+           ret = a @ b                                                                                                        
+                                                                                                                              
+         WARNING /Users/jlman6/miniconda3/lib/python3.12/site-packages/sklearn/utils/extmath.py:203:           warnings.py:112
+         RuntimeWarning: invalid value encountered in matmul                                                                  
+           ret = a @ b                                                                                                        
+                                                                                                                              
+         Computing fragment prediction statistics (135 iterations). It took 0:00:00                         contrastive.py:833
+         Accumulating by global strategy                                                           accumulation_manager.py:415
+         Global prediction results:                                                                accumulation_manager.py:393
+             Acceptable global fragments: 77                                                                                  
+             Non acceptable global fragments: 15                                                                              
+                 Non certain: 0                                                                                               
+                 Non significant: 11                                                                                          
+                 Non consistent: 4                                                                                            
+                 Non unique: 0                                                                                                
+         Global accumulation succeeded                                                             accumulation_manager.py:430
+14:18:09 Contrastive step identified 90.10% of the accumulable images                                           tracker.py:118
+         This is higher than CONTRASTIVE_MIN_ACCUMULATION=50.0%, enough to finish accumulation right here.      tracker.py:123
+         We will not run the accumulation protocol.                                                                           
+         FINISH Contrastive step, it took 0:58:07                                                              py_utils.py:202
+         Saving IdentifierContrastive at                                                                         models.py:216
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/accumulat              
+         ion/identifier_contrastive.model.pt                                                                                  
+         FINISH Fragment identification, it took 0:58:07                                                       py_utils.py:202
+         START Identification                                                                                  py_utils.py:197
+         Assigning identities to all non-accumulated individual fragments                                      assigner.py:121
+         Resetting ListOfFragments to 'accumulation'                                                           assigner.py:122
+         Number of unidentified individual fragments: 134                                                      assigner.py:129
+         Number of images to identify non-accumulated fragments: 1159                                          assigner.py:140
+         Predicting identities of 1159 images                                                               _contextlib.py:120
+         Creating on-the-fly DataLoader with 1159 images                                                          train.py:329
+14:18:21 Predicting identities (2 iterations). It took 0:00:11                                                    train.py:306
+         1159 generated predictions between 3 identities                                                       assigner.py:149
+         Assigning remaining fragments identities (134 iterations). It took 0:00:00                            assigner.py:158
+         FINISH Identification, it took 0:00:12                                                                py_utils.py:202
+         Updating identities in identification images files                                           list_of_fragments.py:367
+         Loading ListOfBlobs from                                                                               __init__.py:51
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/preproce               
+         ssing/list_of_blobs.pickle                                                                                           
+         Reading list_of_blobs.pickle (3.0 MB). It took 0:00:00                                            list_of_blobs.py:79
+         FINISH Tracking, it took 0:58:21                                                                      py_utils.py:202
+         Saving Session object in                                                                                   run.py:112
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/session.json           
+14:18:22 Saving ListOfBlobs at                                                                                      run.py:114
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/preprocessin           
+         g/list_of_blobs.pickle                                                                                               
+         Writing list_of_blobs.pickle (3.0 MB). It took 0:00:00                                           list_of_blobs.py:100
+         Saving ListOfFragments as                                                                                  run.py:116
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/preprocessin           
+         g/list_of_fragments.json                                                                                             
+         Writing list_of_fragments.json (243.8 kB). It took 0:00:00                                   list_of_fragments.py:243
+         Saving ListOfGlobalFragments at                                                                            run.py:118
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/preprocessin           
+         g/list_of_global_fragments.json                                                                                      
+         START Trajectories creation                                                                           py_utils.py:197
+         START Impossible jumps correction                                                                     py_utils.py:197
+         Correcting impossible velocity jumps to_the_past (99 iterations). It took 0:00:00     correct_impossible_jumps.py:356
+         Correcting impossible velocity jumps to_the_future (131 iterations). It took 0:00:00  correct_impossible_jumps.py:356
+         Final statistics:                                                                            list_of_fragments.py:599
+           232 fragments                                                                                                      
+           5 crossing fragments                                                                                               
+           227 individual fragments                                                                                           
+           92 individual fragments not in a global fragment                                                                   
+           111 accumulable individual fragments                                                                               
+           24 not accumulable individual fragments                                                                            
+           93 globally accumulated individual fragments                                                                       
+           0 partially accumulated individual fragments                                                                       
+           8343 blobs                                                                                                         
+           32 crossing blobs                                                                                                  
+           8311 individual blobs                                                                                              
+           92 individual blobs not in a global fragment                                                                       
+           7938 accumulable individual blobs                                                                                  
+           110 not accumulable individual blobs                                                                               
+           7152 globally accumulated individual blobs                                                                         
+           0 partially accumulated individual blobs                                                                           
+         Updating list of blobs from list of fragments                                                list_of_fragments.py:612
+         FINISH Impossible jumps correction, it took 0:00:00                                                   py_utils.py:202
+         START Crossings solver                                                                                py_utils.py:197
+         Forced 79 non identified Fragments to be crossings                                              assign_them_all.py:28
+         Updating list of blobs from list of fragments                                                list_of_fragments.py:612
+         Saving ListOfFragments as                                                                      assign_them_all.py:599
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/                       
+         preprocessing/list_of_fragments.json                                                                                 
+         Writing list_of_fragments.json (248.0 kB). It took 0:00:00                                   list_of_fragments.py:243
+         Closing gaps, iteration 0 (2999 iterations). It took 0:00:00                                   assign_them_all.py:417
+         Closing gaps, iteration 1 (2999 iterations). It took 0:00:00                                   assign_them_all.py:417
+         FINISH Crossings solver, it took 0:00:00                                                              py_utils.py:202
+         Creating on-the-fly DataLoader with 7873 images                                                          train.py:329
+14:18:34 Predicting final identity certainties (8 iterations). It took 0:00:11                     trajectories_creation.py:44
+         Directory                                                                                 trajectories_creation.py:80
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_t                            
+         rack/trajectories has been created                                                                                   
+         Producing trajectories (3000 iterations). It took 0:00:00                                trajectories_creation.py:129
+         Saving trajectories in                                                                          trajectories_io.py:87
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/t                      
+         rajectories/trajectories.h5                                                                                          
+         Creating converter from 5 to 3                                                                           attrs.py:204
+         Saving trajectories in                                                                          trajectories_io.py:40
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/t                      
+         rajectories/trajectories.npy                                                                                         
+         Saving trajectories in                                                                          trajectories_io.py:53
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/t                      
+         rajectories/trajectories_csv                                                                                         
+         Directory                                                                                       trajectories_io.py:54
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/t                      
+         rajectories/trajectories_csv has been created                                                                        
+         FINISH Trajectories creation, it took 0:00:12                                                         py_utils.py:202
+         FINISH Tracking session, it took 0:59:25                                                                    run.py:67
+         Saving Session object in                                                                                   run.py:112
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/session.json           
+         Saving ListOfBlobs at                                                                                      run.py:114
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/preprocessin           
+         g/list_of_blobs.pickle                                                                                               
+         Writing list_of_blobs.pickle (3.1 MB). It took 0:00:00                                           list_of_blobs.py:100
+         Saving ListOfFragments as                                                                                  run.py:116
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/preprocessin           
+         g/list_of_fragments.json                                                                                             
+         Writing list_of_fragments.json (248.0 kB). It took 0:00:00                                   list_of_fragments.py:243
+         Saving ListOfGlobalFragments at                                                                            run.py:118
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/preprocessin           
+         g/list_of_global_fragments.json                                                                                      
+         Estimated accuracy: 88.9183%                                                                                run.py:75
+         Data policy: 'idmatcher.ai'                                                                            session.py:966
+         Directory                                                                                              session.py:985
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/bounding               
+         _box_images has been removed                                                                                         
+         Directory                                                                                              session.py:986
+         /Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track/crossing               
+         s_detector has been removed                                                                                          
+         Compressing identification images (6 iterations). It took 0:00:00                                     session.py:1002
+         Success                                                                                                     run.py:81

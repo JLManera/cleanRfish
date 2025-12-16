@@ -1,0 +1,178 @@
+{
+    "first_frame_first_global_fragment": 870,
+    "number_of_error_frames": 168,
+    "estimated_accuracy": 0.8891830104680544,
+    "identities_labels": [
+        "1",
+        "2",
+        "3"
+    ],
+    "identities_colors": [
+        "#ff0000",
+        "#00ff00",
+        "#0000ff"
+    ],
+    "video_paths": [
+        "/Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/example_video.mp4"
+    ],
+    "number_of_animals": 3,
+    "intensity_ths": [
+        24,
+        255
+    ],
+    "area_ths": [
+        20.0,
+        Infinity
+    ],
+    "name": "example_idtrackerai_track",
+    "tracking_intervals": [
+        [
+            0,
+            3000
+        ]
+    ],
+    "resolution_reduction": 1,
+    "roi_list": [
+        "+ Polygon [[409.9, 56.6], [398.1, 270.5], [404.8, 531.6], [1393.5, 481.1], [1356.5, 24.6], [863.0, 17.9]]",
+        "- Polygon [[1301.2, 272.8], [1299.1, 280.8], [1300.0, 297.0], [1305.4, 298.5], [1309.3, 293.4], [1318.9, 291.0], [1318.6, 280.5], [1307.5, 277.2]]"
+    ],
+    "use_bkg": true,
+    "knowledge_transfer_folder": null,
+    "check_segmentation": false,
+    "identity_transfer": false,
+    "track_wo_identities": false,
+    "frames_per_episode": 500,
+    "background_subtraction_stat": "median",
+    "number_of_frames_for_background": 50,
+    "number_of_parallel_workers": 4,
+    "data_policy": "idmatcher.ai",
+    "id_image_size": [
+        16,
+        16,
+        1
+    ],
+    "trajectories_formats": [
+        "h5",
+        "npy",
+        "csv"
+    ],
+    "exclusive_rois": false,
+    "identity_transfer_succeeded": false,
+    "bounding_box_images_in_ram": false,
+    "last_validated": "2025-12-11T16:22:50.636779",
+    "silhouette_score": 0.7868735194206238,
+    "fragment_connectivity": 1.9037037037037037,
+    "run_idtrackerai": true,
+    "version": "6.0.12",
+    "width": 1920,
+    "height": 540,
+    "frames_per_second": 25.0,
+    "number_of_frames": 3000,
+    "session_folder": "/Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/session_example_idtrackerai_track",
+    "identities_groups": {},
+    "setup_points": {},
+    "timers": {
+        "Tracking session": {
+            "name": "Tracking session",
+            "start_time": "2025-12-11T13:19:09.040422",
+            "finish_time": "2025-12-11T14:18:34.131426"
+        },
+        "Animal detection": {
+            "name": "Animal detection",
+            "start_time": "2025-12-11T13:19:09.107922",
+            "finish_time": "2025-12-11T13:19:11.958530"
+        },
+        "Crossing detection": {
+            "name": "Crossing detection",
+            "start_time": "2025-12-11T13:19:11.981538",
+            "finish_time": "2025-12-11T13:20:00.707702"
+        },
+        "Fragmentation": {
+            "name": "Fragmentation",
+            "start_time": "2025-12-11T13:20:00.862876",
+            "finish_time": "2025-12-11T13:20:00.889091"
+        },
+        "Tracking": {
+            "name": "Tracking",
+            "start_time": "2025-12-11T13:20:00.938943",
+            "finish_time": "2025-12-11T14:18:21.999013"
+        },
+        "Fragment identification": {
+            "name": "Fragment identification",
+            "start_time": "2025-12-11T13:20:02.379728",
+            "finish_time": "2025-12-11T14:18:09.642215"
+        },
+        "Contrastive step": {
+            "name": "Contrastive step",
+            "start_time": "2025-12-11T13:20:02.383510",
+            "finish_time": "2025-12-11T14:18:09.560127"
+        },
+        "Identification": {
+            "name": "Identification",
+            "start_time": "2025-12-11T14:18:09.644996",
+            "finish_time": "2025-12-11T14:18:21.645599"
+        },
+        "Trajectories creation": {
+            "name": "Trajectories creation",
+            "start_time": "2025-12-11T14:18:22.048931",
+            "finish_time": "2025-12-11T14:18:34.130477"
+        },
+        "Impossible jumps correction": {
+            "name": "Impossible jumps correction",
+            "start_time": "2025-12-11T14:18:22.049776",
+            "finish_time": "2025-12-11T14:18:22.064811"
+        },
+        "Crossings solver": {
+            "name": "Crossings solver",
+            "start_time": "2025-12-11T14:18:22.066104",
+            "finish_time": "2025-12-11T14:18:22.248716"
+        }
+    },
+    "median_body_length": 21.95449840010015,
+    "accumulation_statistics_data": {
+        "n_accumulated_global_fragments": [
+            0
+        ],
+        "n_non_certain_global_fragments": [
+            0
+        ],
+        "n_randomly_assigned_global_fragments": [
+            11
+        ],
+        "n_nonconsistent_global_fragments": [
+            4
+        ],
+        "n_nonunique_global_fragments": [
+            0
+        ],
+        "n_acceptable_global_fragments": [
+            77
+        ],
+        "ratio_of_accumulated_images": [
+            0
+        ]
+    },
+    "ratio_accumulated_images": 0.9009826152683296,
+    "velocity_threshold": 10.474613837519522,
+    "individual_fragments_stats": {
+        "fragments": 232,
+        "crossing_fragments": 5,
+        "individual_fragments": 227,
+        "individual_fragments_not_in_a_global_fragment": 92,
+        "accumulable_individual_fragments": 111,
+        "not_accumulable_individual_fragments": 24,
+        "globally_accumulated_individual_fragments": 93,
+        "partially_accumulated_individual_fragments": 0,
+        "blobs": 8343,
+        "crossing_blobs": 32,
+        "individual_blobs": 8311,
+        "individual_blobs_not_in_a_global_fragment": 92,
+        "accumulable_individual_blobs": 7938,
+        "not_accumulable_individual_blobs": 110,
+        "globally_accumulated_individual_blobs": 7152,
+        "partially_accumulated_individual_blobs": 0
+    },
+    "erosion_kernel_size": 3,
+    "n_animals": 3,
+    "length_calibrations": []
+}

@@ -15,3 +15,4 @@ Data frame with segment column added
 \description{
 Converts jump flags into contiguous segment identifiers.
 }
+\keyword{internal}

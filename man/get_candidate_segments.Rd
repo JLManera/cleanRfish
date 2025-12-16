@@ -29,3 +29,4 @@ Vector of candidate segment IDs
 \description{
 Find all segments with at least one point within the search window.
 }
+\keyword{internal}

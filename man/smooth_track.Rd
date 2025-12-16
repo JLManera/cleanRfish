@@ -2,22 +2,39 @@
 % Please edit documentation in R/functions.R
 \name{smooth_track}
 \alias{smooth_track}
-\title{Smooth Reconstructed Trajectory}
+\title{Smooth Multiple Tracked Individuals Without Reconstruction}
 \usage{
-smooth_track(df, method = "savitzky_golay", n = "not_specified", p = 3)
+smooth_track(
+  df_raw,
+  smooth_method = "savitzky_golay",
+  smooth_window = "not_specified"
+)
 }
 \arguments{
-\item{df}{Data frame with x_reconstructed and y_reconstructed columns}
+\item{df_raw}{Data frame with columns: time, x1, y1, x2, y2, etc.}
 
-\item{method}{Either "savitzky_golay" or "moving_average"}
+\item{smooth_method}{Smoothing method: "savitzky_golay" or "moving_average" (default: "savitzky_golay")}
 
-\item{n}{Window size (default: "not_specified" for auto-calculation)}
-
-\item{p}{Polynomial order for Savitzky-Golay (default: 3)}
+\item{smooth_window}{Smoothing window size. If "not_specified", automatically calculated from frame rate.}
 }
 \value{
-Data frame with x_smooth and y_smooth columns added
+List with tracks data frame compatible with overlay_video()
 }
 \description{
-Apply Savitzky-Golay or moving average filter to reduce noise.
+Applies smoothing to multi-individual tracking data without performing
+trajectory reconstruction. This is useful when the raw tracking data is
+already clean and only needs smoothing, or when you want to compare
+smoothed raw data against reconstructed data.
+}
+\examples{
+\dontrun{
+# Load tracking data
+df <- read.csv("tracking_data.csv")
+
+# Smooth without reconstruction
+result <- smooth_track(df)
+
+# Create video overlay
+overlay_video(result$tracks, "video.mp4")
+}
 }

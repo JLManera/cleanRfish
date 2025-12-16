@@ -17,3 +17,4 @@ Data frame of identified gaps
 \description{
 Detect large temporal gaps between segments that indicate complete tracking loss.
 }
+\keyword{internal}

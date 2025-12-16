@@ -19,3 +19,4 @@ Function that predicts uncertainty for a given time gap
 \description{
 Quantify how positional uncertainty grows as a function of time gap.
 }
+\keyword{internal}

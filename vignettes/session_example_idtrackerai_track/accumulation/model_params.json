@@ -1,0 +1,11 @@
+{
+    "n_classes": 3,
+    "image_size": [
+        16,
+        16,
+        1
+    ],
+    "resolution_reduction": 1,
+    "model": "ResNet18",
+    "version": "6.0.12"
+}

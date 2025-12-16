@@ -1,0 +1,16 @@
+name = 'example_idtrackerai_track'
+video_paths = [
+    '/Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/example_video.mp4',
+]
+intensity_ths = [24, 255]
+area_ths = [20.0, inf]
+tracking_intervals = ""
+number_of_animals = 3
+use_bkg = true
+check_segmentation = false
+track_wo_identities = false
+roi_list = [
+    '+ Polygon [[409.9, 56.6], [398.1, 270.5], [404.8, 531.6], [1393.5, 481.1], [1356.5, 24.6], [863.0, 17.9]]',
+    '- Polygon [[1301.2, 272.8], [1299.1, 280.8], [1300.0, 297.0], [1305.4, 298.5], [1309.3, 293.4], [1318.9, 291.0], [1318.6, 280.5], [1307.5, 277.2]]',
+]
+background_subtraction_stat = 'median'

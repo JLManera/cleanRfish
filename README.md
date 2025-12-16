@@ -60,7 +60,7 @@ library(cleanRfish)
 df_multi <- read.csv("trajectories.csv")
 
 # Process all individuals with uncertainty-weighted reconstruction
-results <- process_multi_individual(
+results <- clean_track(
   df_raw = df_multi,
   window = 20,                        # 20-second search window
   min_candidates = 8,                 # Minimum candidates segments to consider
@@ -110,7 +110,7 @@ ggplot() +
 
 ```r
 # Generate diagnostic plots during processing
-results <- process_multi_individual(
+results <- clean_track(
   df_raw = df_multi,
   diagnostic_plots = TRUE
 )
@@ -124,7 +124,7 @@ check_spline_fits(results, individual_number = 1)
 
 ```r
 # Overlay all individuals simultaneously on original video
-overlay_track_on_video(
+overlay_video(
   tracks_df = all_individuals,
   video_path = "path/to/video.mp4",
   output_name = "reconstructed_overlay.mp4",
@@ -134,33 +134,17 @@ overlay_track_on_video(
 
 ## Core Functions
 
-### Trajectory Processing
+The following functions are available for users:
 
-- `detect_jumps()` - Identify tracking discontinuities using velocity/direction metrics
-- `assign_segments()` - Convert jump flags to segment IDs
-- `find_ground_truth_segment()` - Identify most reliable anchor segment
-- `identify_isolated_groups()` - Partition segments by large temporal gaps
+### Main Functions
 
-### Uncertainty & Ranking
-
-- `compute_uncertainty_model()` - Fit Ornstein-Uhlenbeck uncertainty model to the data to see how uncertainty in position changes with time
-- `get_candidate_segments()` - Find segments within search window (adaptive)
-- `rank_candidates_uncertainty()` - Score candidates using likelihood + uncertainty
-- `calculate_log_likelihood()` - Compute match quality score
-
-### Reconstruction
-
-- `propagate_forward_uncertainty()` - Link segments forward from ground truth
-- `propagate_backwards_uncertainty()` - Link segments backward from ground truth
-- `smooth_track()` - Apply Savitzky-Golay or moving average smoothing
-- `process_multi_individual()` - Complete pipeline for multi-individual data
-
-### Visualization
-
-- `check_spline_fits()` - Interactive Shiny gadget for diagnostic plots
-- `overlay_track_on_video()` - Create video with tracks overlaid
-- `get_video_resolution()` - Extract video properties
-- `seconds_to_ass_time()` - Convert time format for subtitles
+| Function | Description |
+|----------|-------------|
+| `clean_track()` | Primary trajectory cleaning function - reconstructs fragmented tracks using temporal priority ground truth selection |
+| `symmetrical_clean_track()` | Alternative reconstruction using symmetrical (largest segment) ground truth selection |
+| `smooth_track()` | Apply smoothing to tracking data without reconstruction |
+| `check_spline_fits()` | Interactive Shiny viewer for diagnostic plots |
+| `overlay_video()` | Create video with reconstructed tracks overlaid |
 
 ## Parameter Tuning
 

@@ -19,3 +19,4 @@ Numeric speed threshold
 \description{
 Calculate biologically plausible maximum velocity using log-normal distribution.
 }
+\keyword{internal}

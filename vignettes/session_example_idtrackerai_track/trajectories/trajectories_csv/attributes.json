@@ -1,0 +1,22 @@
+{
+    "version": "6.0.12",
+    "height": 540,
+    "width": 1920,
+    "video_paths": [
+        "/Users/jlman6/Documents/GitHub/cleanRfish/Vignette_skeleton/example_video.mp4"
+    ],
+    "frames_per_second": 25.0,
+    "body_length": 21.95449840010015,
+    "estimated_accuracy": 0.8891830104680544,
+    "setup_points": {},
+    "identities_labels": [
+        "1",
+        "2",
+        "3"
+    ],
+    "identities_groups": {},
+    "length_unit": null,
+    "silhouette_score": 0.7868735194206238,
+    "fragment_connectivity": 1.9037037037037037,
+    "fraction_identified": 0.9057777777777778
+}

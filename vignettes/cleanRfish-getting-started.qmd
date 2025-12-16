@@ -1,0 +1,262 @@
+---
+title: "Getting Started with cleanRfish"
+subtitle: "Trajectory Cleaning for Animal Tracking Data"
+author: "Jack L. Manera"
+date: today
+format: 
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: false
+    code-overflow: wrap
+    theme: flatly
+---
+
+## Introduction
+
+**cleanRfish** is an R package for cleaning and reconstructing fragmented animal trajectories from video tracking systems. Automated tracking software (e.g., idtracker.ai, EthoVision) often produces systematic errors that fragment otherwise continuous animal trajectories. Unlike GPS-based movement data where errors are typically small and random, video tracking errors tend to be:
+  
+- Temporally autocorrelated (forming coherent but incorrect path segments)
+- Difficult to distinguish from genuine movement
+- Caused by identity swaps, occlusions, or tracking of non-target objects
+
+cleanRfish addresses these challenges using **uncertainty-weighted spline-based trajectory reconstruction**. The algorithm identifies reliable "ground truth" segments, then propagates bidirectionally using GAM splines and Ornstein-Uhlenbeck uncertainty models to link fragments into continuous trajectories.
+
+## Installation
+
+```{r}
+#| label: install
+#| eval: false
+
+# Install from GitHub
+remotes::install_github("JLManera/cleanRfish")
+```
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+# Load required packages
+library(tidyverse)
+library(ggplot2)
+library(cleanRfish)
+```
+
+## Example Data
+
+This vignette uses example tracking data from idtracker.ai. The data contains trajectories for multiple individuals tracked over time, with columns for time and x/y coordinates for each individual (e.g., `time`, `x1`, `y1`, `x2`, `y2`, ...).
+
+```{r}
+#| label: load-data
+#| message: false
+
+# Read the example tracking data
+raw_df <- read_csv("./session_example_idtrackerai_track/trajectories/trajectories_csv/trajectories.csv")
+
+# View structure
+head(raw_df)
+```
+
+```{r}
+#| label: data-summary
+
+# Check dimensions and column names
+cat("Dimensions:", nrow(raw_df), "rows x", ncol(raw_df), "columns\n")
+cat("Columns:", paste(names(raw_df), collapse = ", "))
+```
+
+## Trajectory Cleaning with `clean_track()`
+
+The main function `clean_track()` performs the complete trajectory reconstruction pipeline:
+
+1. **Jump Detection**: Identifies abrupt changes in velocity and direction that indicate tracking errors
+2. **Segmentation**: Partitions the track into contiguous segments
+3. **Ground Truth Selection**: Identifies the most reliable segment (using temporal priority)
+4. **Bidirectional Propagation**: Links segments forward and backward using uncertainty-weighted likelihood
+5. **Smoothing**: Applies Savitzky-Golay or moving average filter to reduce noise
+
+```{r}
+#| label: clean-track
+#| message: true
+
+# Clean the tracking data
+cleaned_df <- clean_track(
+  raw_df,
+  window = 20,                         # Search window size (seconds)
+  min_candidates = 5,                  # Minimum candidate segments to consider
+  speed_threshold_quantile = 0.9999,   # Speed feasibility threshold
+  min_movement = 20,                   # Minimum movement for ground truth selection
+  diagnostic_plots = TRUE              # Generate diagnostic plots for inspection
+)
+```
+
+The output is a list containing:
+
+- `$tracks`: Data frame with original, reconstructed, and smoothed coordinates
+- `$plots`: Diagnostic plots (when `diagnostic_plots = TRUE`)
+
+```{r}
+#| label: view-results
+
+# View the structure of cleaned tracks
+head(cleaned_df$tracks)
+```
+
+## Inspecting Reconstruction Quality
+
+Use `check_spline_fits()` to interactively browse through the reconstruction decisions. This launches a Shiny viewer where you can:
+
+- Navigate through each reconstruction step using arrow keys (← →)
+- See spline predictions with uncertainty envelopes
+- View candidate segment rankings and selection criteria
+
+```{r}
+#| label: check-fits
+#| eval: false
+
+# Launch interactive diagnostic viewer for individual 2
+check_spline_fits(cleaned_df, individual_number = 2)
+```
+
+## Creating Video Overlays
+
+The `overlay_video()` function burns the reconstructed tracks onto the original video using ffmpeg. This is invaluable for visual validation of the reconstruction quality.
+
+```{r}
+#| label: overlay-video
+#| eval: false
+
+# Create video with overlaid tracks
+overlay_video(
+  tracks_df = cleaned_df$tracks,
+  video_path = "./example_video.mp4",
+  output_name = "overlaid_example_video.mp4",
+  output_location = "./",
+  dot_size = 20,
+  use_smoothed = TRUE
+)
+```
+
+The overlay displays:
+
+- **Dark colours**: Original (raw) track positions
+- **Bright colours**: Reconstructed/smoothed track positions
+- Each individual is assigned a unique colour
+
+## Visualising Results
+
+### Time Series Plot
+
+```{r}
+#| label: plot-timeseries
+#| fig-width: 10
+#| fig-height: 6
+
+# Plot composite position over time for individual 1
+ggplot(cleaned_df$tracks |> filter(individual_number == 1)) +
+  geom_point(aes(x = time, y = x_original + y_original), 
+             alpha = 0.3, colour = "grey40", size = 0.5) +
+  geom_line(aes(x = time, y = x_smooth + y_smooth), 
+            colour = "purple", linewidth = 0.4, na.rm = TRUE) +
+  labs(
+    title = "Trajectory Reconstruction - Individual 1",
+    subtitle = "Grey: original data | Purple: smoothed reconstruction",
+    x = "Time (seconds)",
+    y = "Composite Position (X + Y)"
+  ) +
+  theme_classic()
+```
+
+### Spatial Plot
+
+```{r}
+#| label: plot-spatial
+#| fig-width: 8
+#| fig-height: 8
+
+# 2D spatial trajectory
+ggplot(cleaned_df$tracks |> filter(individual_number == 1)) +
+  geom_path(aes(x = x_smooth, y = y_smooth), 
+            colour = "purple", linewidth = 0.3, alpha = 0.8, na.rm = TRUE) +
+  geom_point(aes(x = x_original, y = y_original), 
+             alpha = 0.1, colour = "grey40", size = 0.3) +
+  scale_y_reverse() +
+  coord_fixed() +
+  labs(
+    title = "2D Trajectory - Individual 1",
+    x = "X position (pixels)",
+    y = "Y position (pixels)"
+  ) +
+  theme_classic()
+```
+
+## Alternative Functions
+
+### `smooth_track()` - Smoothing Without Reconstruction
+
+If your tracking data is already clean and only needs smoothing:
+  
+```{r}
+#| label: smooth-only
+#| eval: false
+
+# Smooth without reconstruction
+smoothed_result <- smooth_track(
+  raw_df,
+  smooth_method = "savitzky_golay",
+  smooth_window = "not_specified"  # Auto-calculated from frame rate
+)
+```
+
+### `symmetrical_clean_track()` - Alternative Ground Truth Selection
+
+Uses the largest segment (rather than first temporal segment) as the ground truth anchor:
+
+```{r}
+#| label: symmetrical
+#| eval: false
+
+# Symmetrical reconstruction (uses largest segment as ground truth)
+result <- symmetrical_clean_track(
+  raw_df,
+  window = 20,
+  min_candidates = 5
+)
+```
+
+## Key Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `window` | 20 | Search window size (seconds). Should match typical occlusion duration |
+| `min_candidates` | 5 | Minimum segments to consider as candidates. Window auto-expands if needed |
+| `speed_threshold_quantile` | 0.9999 | Speed feasibility quantile. Higher = more permissive |
+| `min_movement` | 500 | Minimum total movement required for ground truth selection |
+| `smooth_method` | "savitzky_golay" | Smoothing filter: "savitzky_golay" or "moving_average" |
+| `diagnostic_plots` | FALSE | Generate diagnostic plots for quality inspection |
+
+## Requirements
+
+- R >= 4.1
+- Required packages: dplyr, mgcv, signal, zoo, ggplot2
+- Optional: plotly, shiny, miniUI (for interactive diagnostics)
+- ffmpeg (for video overlay functionality)
+
+## Citation
+
+If you use cleanRfish in your research, please cite:
+
+```
+Manera, J.L. (2025). cleanRfish: Uncertainty-Weighted Trajectory 
+Reconstruction for Animal Tracking. R package version 2.0.0. 
+https://github.com/JLManera/cleanRfish
+```
+
+## Session Info
+
+```{r}
+#| label: session-info
+sessionInfo()
+```
+

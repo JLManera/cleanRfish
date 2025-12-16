@@ -17,3 +17,4 @@ Numeric log-likelihood score
 \description{
 Score candidate segments based on spatial fit quality penalized by uncertainty.
 }
+\keyword{internal}

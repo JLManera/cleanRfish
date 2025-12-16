@@ -11,7 +11,8 @@ propagate_backwards_uncertainty(
   speed_threshold_quantile = 0.9999,
   max_steps = 2000,
   collect_plots = TRUE,
-  min_candidates = 5
+  min_candidates = 5,
+  use_temporal_priority = FALSE
 )
 }
 \arguments{
@@ -28,6 +29,8 @@ propagate_backwards_uncertainty(
 \item{collect_plots}{Collect diagnostic plots (default: TRUE)}
 
 \item{min_candidates}{Minimum candidates to consider (default: 5)}
+
+\item{use_temporal_priority}{Use temporal priority for multi-group ground truth selection (default: FALSE)}
 }
 \value{
 List with track, decisions, plots, and n_groups
@@ -35,3 +38,4 @@ List with track, decisions, plots, and n_groups
 \description{
 Iteratively link segments backward in time from the ground truth anchor.
 }
+\keyword{internal}

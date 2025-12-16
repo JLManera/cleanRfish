@@ -17,3 +17,4 @@ Data frame with tracking_group column added
 \description{
 Partition trajectory segments into isolated tracking groups based on large temporal gaps.
 }
+\keyword{internal}

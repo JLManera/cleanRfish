@@ -38,3 +38,4 @@ List with features_df, diagnostic_plot, and spatial_plot
 \description{
 Core algorithm for scoring and ranking candidate segments for linking.
 }
+\keyword{internal}

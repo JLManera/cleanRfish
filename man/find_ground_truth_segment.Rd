@@ -19,3 +19,4 @@ Integer segment ID of ground truth segment
 \description{
 Identify the most reliable segment to serve as an anchor point for reconstruction.
 }
+\keyword{internal}
