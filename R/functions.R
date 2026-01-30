@@ -139,10 +139,11 @@ identify_tracking_gaps <- function(df_all, window) {
 #'
 #' @param df Data frame with segment, distance, and time columns
 #' @param min_movement Minimum total movement required (default: 500)
+#' @param min_points Minimum number of points required for a valid segment (default: 20)
 #' @param group_id Optional tracking group ID to filter by
 #' @return Integer segment ID of ground truth segment
 #' @keywords internal
-find_ground_truth_segment <- function(df, min_movement = 500, group_id = NULL) {
+find_ground_truth_segment <- function(df, min_movement = 500, min_points = 20, group_id = NULL) {
   # Filter by group if specified
   if (!is.null(group_id)) {
     df <- df |> filter(tracking_group == group_id)
@@ -158,15 +159,25 @@ find_ground_truth_segment <- function(df, min_movement = 500, group_id = NULL) {
       total_movement = sum(distance, na.rm = TRUE),
       .groups = "drop"
     ) |> 
-    dplyr::filter(total_movement > min_movement) |> 
+    dplyr::filter(total_movement > min_movement, n_points >= min_points) |> 
     dplyr::arrange(dplyr::desc(n_points))
   
   if (nrow(segment_summary) == 0) {
-    # If no segment meets movement threshold, just take the longest one
+    # If no segment meets both thresholds, just take the longest one with enough points
+    segment_summary <- df |>
+      dplyr::group_by(segment) |>
+      dplyr::summarise(n_points = dplyr::n(), .groups = "drop") |>
+      dplyr::filter(n_points >= min_points) |>
+      dplyr::arrange(dplyr::desc(n_points))
+  }
+  
+  if (nrow(segment_summary) == 0) {
+    # Last resort: take the segment with the most points regardless of threshold
     segment_summary <- df |>
       dplyr::group_by(segment) |>
       dplyr::summarise(n_points = dplyr::n(), .groups = "drop") |>
       dplyr::arrange(dplyr::desc(n_points))
+    warning("No segment meets minimum point threshold. Using largest segment as ground truth.")
   }
   
   # Select the segment with the longest duration and sufficient movement
@@ -1293,10 +1304,11 @@ symmetrical_clean_track <- function(df_raw,
 #'
 #' @param df Data frame with segment, time, and distance columns
 #' @param min_movement Minimum cumulative movement required (default: 500)
+#' @param min_points Minimum number of points required for a valid segment (default: 20)
 #' @param group_id Optional tracking group identifier
 #' @return Integer segment ID
 #' @keywords internal
-find_first_ground_truth_segment <- function(df, min_movement = 500, group_id = NULL) {
+find_first_ground_truth_segment <- function(df, min_movement = 500, min_points = 20, group_id = NULL) {
   # Filter by group if specified
   if (!is.null(group_id)) {
     df <- df |> dplyr::filter(tracking_group == group_id)
@@ -1313,11 +1325,11 @@ find_first_ground_truth_segment <- function(df, min_movement = 500, group_id = N
       start_time = min(time),
       .groups = "drop"
     ) |> 
-    dplyr::filter(total_movement > min_movement) |> 
+    dplyr::filter(total_movement > min_movement, n_points >= min_points) |> 
     dplyr::arrange(start_time)  # Order by time instead of n_points
   
   if (nrow(segment_summary) == 0) {
-    # If no segment meets movement threshold, take the first one by time
+    # If no segment meets both thresholds, relax to just n_points requirement
     segment_summary <- df |>
       dplyr::group_by(segment) |>
       dplyr::summarise(
@@ -1325,10 +1337,24 @@ find_first_ground_truth_segment <- function(df, min_movement = 500, group_id = N
         start_time = min(time),
         .groups = "drop"
       ) |>
+      dplyr::filter(n_points >= min_points) |>
       dplyr::arrange(start_time)
   }
   
-  # Select the earliest segment (temporally) with sufficient movement
+  if (nrow(segment_summary) == 0) {
+    # Last resort: take the segment with the most points
+    segment_summary <- df |>
+      dplyr::group_by(segment) |>
+      dplyr::summarise(
+        n_points = dplyr::n(),
+        start_time = min(time),
+        .groups = "drop"
+      ) |>
+      dplyr::arrange(dplyr::desc(n_points))
+    warning("No segment meets minimum point threshold. Using largest segment as ground truth.")
+  }
+  
+  # Select the earliest segment (temporally) with sufficient movement and points
   ground_truth_segment_id <- segment_summary$segment[1]
   return(ground_truth_segment_id)
 }
